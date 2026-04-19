@@ -16,6 +16,15 @@ type SubmissionRow = {
   status: string
 }
 
+type AssignmentItemRow = {
+  assignment_id: string
+  item_type: string
+  title: string | null
+  prompt_text: string
+  tts_text: string | null
+  reference_audio_path: string | null
+}
+
 type MembershipRow = {
   class_id: string | null
   role: string
@@ -37,6 +46,11 @@ type AssignmentView = AssignmentRow & {
   submittedCount: number
   pendingCount: number
   submissionRate: number
+  itemType: string
+  itemTitle: string | null
+  promptText: string
+  ttsText: string | null
+  referenceAudioPath: string | null
 }
 
 export function AssignmentsPage() {
@@ -127,7 +141,8 @@ export function AssignmentsPage() {
         const assignmentIds = assignments.map((item) => item.id)
         const scopedClassIds = Array.from(new Set(assignments.map((item) => item.class_id)))
 
-        const [submissionResponse, studentMembershipResponse] = await Promise.all([
+        const [submissionResponse, studentMembershipResponse, assignmentItemsResponse] =
+          await Promise.all([
           assignmentIds.length
             ? supabase
                 .from('submissions')
@@ -142,10 +157,20 @@ export function AssignmentsPage() {
                 .eq('role', 'student')
                 .eq('status', 'active')
             : Promise.resolve({ data: [], error: null }),
+          assignmentIds.length
+            ? supabase
+                .from('assignment_items')
+                .select(
+                  'assignment_id, item_type, title, prompt_text, tts_text, reference_audio_path, sort_order',
+                )
+                .in('assignment_id', assignmentIds)
+                .order('sort_order', { ascending: true })
+            : Promise.resolve({ data: [], error: null }),
         ])
 
         const submissionRows = (submissionResponse.data ?? []) as SubmissionRow[]
         const studentMemberships = (studentMembershipResponse.data ?? []) as MembershipRow[]
+        const assignmentItems = (assignmentItemsResponse.data ?? []) as AssignmentItemRow[]
 
         const submittedCountByAssignment = new Map<string, number>()
         const pendingCountByAssignment = new Map<string, number>()
@@ -170,10 +195,18 @@ export function AssignmentsPage() {
           studentsByClass.set(item.class_id, (studentsByClass.get(item.class_id) ?? 0) + 1)
         })
 
+        const firstItemByAssignment = new Map<string, AssignmentItemRow>()
+        assignmentItems.forEach((item) => {
+          if (!firstItemByAssignment.has(item.assignment_id)) {
+            firstItemByAssignment.set(item.assignment_id, item)
+          }
+        })
+
         setRows(
           assignments.map((assignment) => {
             const submittedCount = submittedCountByAssignment.get(assignment.id) ?? 0
             const expectedStudents = studentsByClass.get(assignment.class_id) ?? 0
+            const firstItem = firstItemByAssignment.get(assignment.id)
 
             return {
               ...assignment,
@@ -183,6 +216,11 @@ export function AssignmentsPage() {
                 expectedStudents > 0
                   ? Math.round((submittedCount / expectedStudents) * 100)
                   : 0,
+              itemType: firstItem?.item_type ?? 'sentence',
+              itemTitle: firstItem?.title ?? null,
+              promptText: firstItem?.prompt_text ?? '',
+              ttsText: firstItem?.tts_text ?? null,
+              referenceAudioPath: firstItem?.reference_audio_path ?? null,
             }
           }),
         )
@@ -299,6 +337,11 @@ export function AssignmentsPage() {
         submittedCount: 0,
         pendingCount: 0,
         submissionRate: 0,
+        itemType: form.itemType,
+        itemTitle: form.itemTitle.trim() || null,
+        promptText: form.promptText.trim(),
+        ttsText: form.ttsText.trim() || form.expectedText.trim() || null,
+        referenceAudioPath: resolvedReferenceAudioPath || null,
       },
       ...current,
     ])
@@ -512,6 +555,14 @@ export function AssignmentsPage() {
             />
           </label>
 
+          {selectedReferenceAudio ? (
+            <div className="info-banner span-2">
+              已选择示范音频：{selectedReferenceAudio.name}
+              <br />
+              创建作业时会自动上传，并优先给学生端播放。
+            </div>
+          ) : null}
+
           <label className="span-2">
             已有示范音频路径
             <input
@@ -525,6 +576,15 @@ export function AssignmentsPage() {
               placeholder="可填写 materials:school-id/reference-audio/demo.mp3"
             />
           </label>
+
+          {(form.referenceAudioPath || form.ttsText.trim()) && !selectedReferenceAudio ? (
+            <div className="helper-stack span-2">
+              {form.referenceAudioPath ? (
+                <span className="helper-chip">已填写示范音频路径</span>
+              ) : null}
+              {form.ttsText.trim() ? <span className="helper-chip">已填写 TTS 兜底文案</span> : null}
+            </div>
+          ) : null}
 
           {error ? <div className="error-banner span-2">{error}</div> : null}
           {feedback ? <div className="success-banner span-2">{feedback}</div> : null}
@@ -546,6 +606,7 @@ export function AssignmentsPage() {
               <tr>
                 <th>作业标题</th>
                 <th>班级</th>
+                <th>示范</th>
                 <th>状态</th>
                 <th>提交率</th>
                 <th>待处理</th>
@@ -555,8 +616,24 @@ export function AssignmentsPage() {
             <tbody>
               {rows.map((row) => (
                 <tr key={row.id}>
-                  <td>{row.title}</td>
+                  <td>
+                    <div className="assignment-cell">
+                      <strong>{row.title}</strong>
+                      <span>{row.itemTitle || row.promptText || mapItemType(row.itemType)}</span>
+                    </div>
+                  </td>
                   <td>{classNames[row.class_id] || row.class_id}</td>
+                  <td>
+                    <div className="helper-stack">
+                      {row.referenceAudioPath ? (
+                        <span className="helper-chip success">示范音频</span>
+                      ) : null}
+                      {row.ttsText ? <span className="helper-chip">TTS 兜底</span> : null}
+                      {!row.referenceAudioPath && !row.ttsText ? (
+                        <span className="helper-chip muted">未配置</span>
+                      ) : null}
+                    </div>
+                  </td>
                   <td>{mapAssignmentStatus(row.status)}</td>
                   <td>{row.status === 'draft' ? '-' : `${row.submissionRate}%`}</td>
                   <td>{row.pendingCount > 0 ? `${row.pendingCount} 份` : '无'}</td>
@@ -569,6 +646,12 @@ export function AssignmentsPage() {
       )}
     </section>
   )
+}
+
+function mapItemType(itemType: string) {
+  if (itemType === 'word') return '单词练习'
+  if (itemType === 'paragraph') return '段落朗读'
+  return '句子练习'
 }
 
 function mapAssignmentStatus(status: string) {
