@@ -45,6 +45,7 @@ export function AssignmentsPage() {
   const [classNames, setClassNames] = useState<Record<string, string>>({})
   const [classOptions, setClassOptions] = useState<ClassOption[]>([])
   const [materialOptions, setMaterialOptions] = useState<MaterialOption[]>([])
+  const [selectedReferenceAudio, setSelectedReferenceAudio] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [feedback, setFeedback] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -59,6 +60,8 @@ export function AssignmentsPage() {
     itemTitle: '',
     promptText: '',
     expectedText: '',
+    ttsText: '',
+    referenceAudioPath: '',
   })
 
   const schoolIds = useMemo(
@@ -229,6 +232,27 @@ export function AssignmentsPage() {
     setError(null)
 
     const dueAtIso = form.dueAt ? new Date(form.dueAt).toISOString() : null
+    let resolvedReferenceAudioPath = form.referenceAudioPath.trim()
+
+    if (selectedReferenceAudio) {
+      const safeName = selectedReferenceAudio.name.replace(/\s+/g, '-')
+      const objectPath = `${targetClass.school_id}/reference-audio/${Date.now()}-${safeName}`
+      const { error: uploadError } = await supabase.storage
+        .from('materials')
+        .upload(objectPath, selectedReferenceAudio, {
+          cacheControl: '3600',
+          contentType: selectedReferenceAudio.type || 'audio/mpeg',
+          upsert: false,
+        })
+
+      if (uploadError) {
+        setSubmitting(false)
+        setError(uploadError.message)
+        return
+      }
+
+      resolvedReferenceAudioPath = `materials:${objectPath}`
+    }
 
     const { data: assignment, error: assignmentError } = await supabase
       .from('assignments')
@@ -258,7 +282,8 @@ export function AssignmentsPage() {
       title: form.itemTitle.trim() || null,
       prompt_text: form.promptText.trim(),
       expected_text: form.expectedText.trim() || null,
-      tts_text: form.expectedText.trim() || null,
+      tts_text: form.ttsText.trim() || form.expectedText.trim() || null,
+      reference_audio_path: resolvedReferenceAudioPath || null,
     })
 
     setSubmitting(false)
@@ -281,7 +306,12 @@ export function AssignmentsPage() {
       ...current,
       [targetClass.id]: targetClass.name,
     }))
-    setFeedback('作业已经创建完成，下一步可以去提醒学生开始打卡。')
+    setFeedback(
+      resolvedReferenceAudioPath
+        ? '作业和示范音频都已经创建完成，学生端会优先播放示范音频。'
+        : '作业已经创建完成，下一步可以去提醒学生开始打卡。',
+    )
+    setSelectedReferenceAudio(null)
     setForm((current) => ({
       ...current,
       materialId: '',
@@ -293,6 +323,8 @@ export function AssignmentsPage() {
       itemTitle: '',
       promptText: '',
       expectedText: '',
+      ttsText: '',
+      referenceAudioPath: '',
     }))
   }
 
@@ -319,7 +351,7 @@ export function AssignmentsPage() {
           <span className="status-pill active">创建后可继续提醒学生</span>
         </div>
         <p className="panel-copy">
-          先创建作业主记录和第一条练习内容，足够覆盖老师最常用的布置流程。
+          先创建作业主记录和第一条练习内容。示范音频会优先给学生播放，没有音频时再回退到 TTS。
         </p>
 
         <form className="inline-form" onSubmit={handleSubmit}>
@@ -454,6 +486,43 @@ export function AssignmentsPage() {
                 setForm((current) => ({ ...current, expectedText: event.target.value }))
               }
               placeholder="例如：I can read this story aloud."
+            />
+          </label>
+
+          <label className="span-2">
+            TTS 兜底文案
+            <textarea
+              rows={3}
+              value={form.ttsText}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, ttsText: event.target.value }))
+              }
+              placeholder="如果没有上传示范音频，学生端会优先朗读这里的内容。"
+            />
+          </label>
+
+          <label className="span-2">
+            上传示范音频
+            <input
+              type="file"
+              accept="audio/*"
+              onChange={(event) =>
+                setSelectedReferenceAudio(event.target.files?.[0] ?? null)
+              }
+            />
+          </label>
+
+          <label className="span-2">
+            已有示范音频路径
+            <input
+              value={form.referenceAudioPath}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  referenceAudioPath: event.target.value,
+                }))
+              }
+              placeholder="可填写 materials:school-id/reference-audio/demo.mp3"
             />
           </label>
 
