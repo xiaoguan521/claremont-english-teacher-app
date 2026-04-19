@@ -352,6 +352,37 @@
   font-size: 15px;
 }
 
+.audio-preview-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  background: #f7faff;
+}
+
+.audio-preview-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.audio-preview-header strong {
+  display: block;
+  color: #23344e;
+  margin-bottom: 4px;
+}
+
+.audio-preview-header p {
+  margin: 0;
+  color: #607089;
+  line-height: 1.6;
+}
+
+.audio-player {
+  width: 100%;
+}
+
 .status-chip {
   display: inline-flex;
   align-items: center;

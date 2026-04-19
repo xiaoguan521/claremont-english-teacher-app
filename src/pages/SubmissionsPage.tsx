@@ -57,6 +57,7 @@ type SubmissionQueueRow = {
   strengths: string[]
   improvementPoints: string[]
   audioFileName: string | null
+  audioStoragePath: string | null
 }
 
 type QueueSummary = {
@@ -97,6 +98,9 @@ export function SubmissionsPage() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null)
+  const [audioPreviewLoading, setAudioPreviewLoading] = useState(false)
+  const [audioPreviewError, setAudioPreviewError] = useState<string | null>(null)
 
   const schoolIds = useMemo(
     () => Array.from(new Set(memberships.map((item) => item.school_id))),
@@ -243,6 +247,7 @@ export function SubmissionsPage() {
         strengths: asStringList(evaluation?.strengths),
         improvementPoints: asStringList(evaluation?.improvement_points),
         audioFileName,
+        audioStoragePath: audioMap.get(item.id)?.storage_path ?? null,
       }
     })
 
@@ -280,6 +285,44 @@ export function SubmissionsPage() {
     setSaveError(null)
     setSaveSuccess(null)
   }, [selectedRow])
+
+  useEffect(() => {
+    let alive = true
+
+    const loadAudioPreview = async () => {
+      if (!selectedRow?.audioStoragePath) {
+        setAudioPreviewUrl(null)
+        setAudioPreviewError(null)
+        setAudioPreviewLoading(false)
+        return
+      }
+
+      setAudioPreviewLoading(true)
+      setAudioPreviewError(null)
+
+      const { data, error } = await supabase.storage
+        .from('submission-audio')
+        .createSignedUrl(selectedRow.audioStoragePath, 60 * 60)
+
+      if (!alive) return
+
+      if (error || !data?.signedUrl) {
+        setAudioPreviewUrl(null)
+        setAudioPreviewError(error?.message ?? '音频预览地址生成失败')
+        setAudioPreviewLoading(false)
+        return
+      }
+
+      setAudioPreviewUrl(data.signedUrl)
+      setAudioPreviewLoading(false)
+    }
+
+    void loadAudioPreview()
+
+    return () => {
+      alive = false
+    }
+  }, [selectedRow?.audioStoragePath])
 
   const handleSave = async () => {
     if (!selectedRow) return
@@ -425,6 +468,13 @@ export function SubmissionsPage() {
                   <MetaItem label="提交时间" value={selectedRow.submittedAt} />
                   <MetaItem label="音频附件" value={selectedRow.audioFileName ?? '暂未上传附件'} />
                 </div>
+
+                <AudioPreviewCard
+                  fileName={selectedRow.audioFileName}
+                  previewUrl={audioPreviewUrl}
+                  loading={audioPreviewLoading}
+                  error={audioPreviewError}
+                />
 
                 {saveError ? <div className="error-banner">{saveError}</div> : null}
                 {saveSuccess ? <div className="success-banner">{saveSuccess}</div> : null}
@@ -585,6 +635,41 @@ function MetaItem({ label, value }: { label: string; value: string }) {
     <div className="review-meta-item">
       <span>{label}</span>
       <strong>{value}</strong>
+    </div>
+  )
+}
+
+function AudioPreviewCard({
+  fileName,
+  previewUrl,
+  loading,
+  error,
+}: {
+  fileName: string | null
+  previewUrl: string | null
+  loading: boolean
+  error: string | null
+}) {
+  return (
+    <div className="audio-preview-card">
+      <div className="audio-preview-header">
+        <div>
+          <strong>学生音频</strong>
+          <p>{fileName ?? '当前还没有音频附件'}</p>
+        </div>
+        {previewUrl ? (
+          <a className="quick-link" href={previewUrl} target="_blank" rel="noreferrer">
+            新窗口打开
+          </a>
+        ) : null}
+      </div>
+
+      {loading ? <div className="empty-inline">正在生成试听链接...</div> : null}
+      {error ? <div className="error-banner">{error}</div> : null}
+      {!loading && !error && !previewUrl ? (
+        <div className="empty-inline">学生还没有上传可试听的音频。</div>
+      ) : null}
+      {previewUrl ? <audio className="audio-player" controls src={previewUrl} /> : null}
     </div>
   )
 }
