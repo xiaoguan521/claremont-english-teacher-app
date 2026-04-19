@@ -324,7 +324,7 @@ export function SubmissionsPage() {
     }
   }, [selectedRow?.audioStoragePath])
 
-  const handleSave = async () => {
+  const handleSave = async (moveToNext = false) => {
     if (!selectedRow) return
 
     setIsSaving(true)
@@ -386,9 +386,26 @@ export function SubmissionsPage() {
       }
     }
 
-    setSaveSuccess('点评已经保存，学生端刷新后就能看到。')
+    const nextQueuedRow = moveToNext
+      ? rows.find(
+          (item) =>
+            item.id !== selectedRow.id &&
+            (item.status === 'uploaded' ||
+              item.status === 'queued' ||
+              item.status === 'processing'),
+        )
+      : null
+
+    setSaveSuccess(
+      moveToNext && nextQueuedRow
+        ? '点评已经保存，已为你切到下一条待处理记录。'
+        : '点评已经保存，学生端刷新后就能看到。',
+    )
     setIsSaving(false)
     await loadRows()
+    if (nextQueuedRow) {
+      setSelectedSubmissionId(nextQueuedRow.id)
+    }
   }
 
   return (
@@ -571,8 +588,21 @@ export function SubmissionsPage() {
                 </div>
 
                 <div className="form-actions">
-                  <button className="primary-button" type="button" onClick={() => void handleSave()} disabled={isSaving}>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={() => void handleSave()}
+                    disabled={isSaving}
+                  >
                     {isSaving ? '保存中...' : '保存点评'}
+                  </button>
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={() => void handleSave(true)}
+                    disabled={isSaving}
+                  >
+                    保存并看下一条
                   </button>
                 </div>
               </>

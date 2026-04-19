@@ -445,6 +445,8 @@
 .form-actions {
   display: flex;
   justify-content: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .success-banner {
