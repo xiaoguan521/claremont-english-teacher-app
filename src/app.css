@@ -309,6 +309,12 @@
   font-weight: 700;
 }
 
+.feedback-cell {
+  max-width: 280px;
+  color: #52647f;
+  line-height: 1.6;
+}
+
 .panel-copy {
   margin: -4px 0 0;
   color: #607089;

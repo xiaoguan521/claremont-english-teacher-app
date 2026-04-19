@@ -6,6 +6,7 @@ const navigation = [
   { to: '/', label: '工作台' },
   { to: '/classes', label: '班级管理' },
   { to: '/students', label: '学员管理' },
+  { to: '/submissions', label: '点评队列' },
   { to: '/assignments', label: '作业中心' },
   { to: '/materials', label: '教材资源' },
 ]

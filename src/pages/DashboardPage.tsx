@@ -310,8 +310,8 @@ export function DashboardPage() {
         <article className="panel">
           <div className="panel-heading">
             <h2>最近发布的作业</h2>
-            <Link className="quick-link" to="/materials">
-              去教材资源
+            <Link className="quick-link" to="/submissions">
+              去点评队列
             </Link>
           </div>
           {recentAssignments.length === 0 ? (

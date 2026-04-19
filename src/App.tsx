@@ -9,6 +9,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { LoginPage } from './pages/LoginPage'
 import { MaterialsPage } from './pages/MaterialsPage'
 import { StudentsPage } from './pages/StudentsPage'
+import { SubmissionsPage } from './pages/SubmissionsPage'
 
 function ProtectedRoutes() {
   const { isTeacher } = useAuth()
@@ -31,6 +32,7 @@ function ProtectedRoutes() {
         <Route index element={<DashboardPage />} />
         <Route path="/classes" element={<ClassesPage />} />
         <Route path="/students" element={<StudentsPage />} />
+        <Route path="/submissions" element={<SubmissionsPage />} />
         <Route path="/assignments" element={<AssignmentsPage />} />
         <Route path="/materials" element={<MaterialsPage />} />
       </Route>
