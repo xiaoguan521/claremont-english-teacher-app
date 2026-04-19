@@ -236,6 +236,11 @@
   font-size: 36px;
 }
 
+.stat-card small {
+  color: #607089;
+  line-height: 1.6;
+}
+
 .content-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -251,11 +256,57 @@
   font-size: 20px;
 }
 
+.panel-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
 .panel ul {
   margin: 0;
   padding-left: 18px;
   color: #52647f;
   line-height: 1.8;
+}
+
+.teacher-dashboard-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.teacher-workbench-grid {
+  align-items: start;
+}
+
+.quick-link {
+  color: #2d5fd4;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.action-list {
+  display: grid;
+  gap: 14px;
+}
+
+.action-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 0;
+  border-bottom: 1px solid #edf1f7;
+}
+
+.action-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.empty-inline {
+  padding: 18px 0 4px;
+  color: #607089;
+  font-weight: 700;
 }
 
 .panel-copy {

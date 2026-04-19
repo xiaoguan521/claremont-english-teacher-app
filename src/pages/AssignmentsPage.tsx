@@ -11,6 +11,16 @@ type AssignmentRow = {
   class_id: string
 }
 
+type SubmissionRow = {
+  assignment_id: string
+  status: string
+}
+
+type MembershipRow = {
+  class_id: string | null
+  role: string
+}
+
 type ClassOption = {
   id: string
   name: string
@@ -23,9 +33,15 @@ type MaterialOption = {
   school_id: string
 }
 
+type AssignmentView = AssignmentRow & {
+  submittedCount: number
+  pendingCount: number
+  submissionRate: number
+}
+
 export function AssignmentsPage() {
   const { memberships, session } = useAuth()
-  const [rows, setRows] = useState<AssignmentRow[]>([])
+  const [rows, setRows] = useState<AssignmentView[]>([])
   const [classNames, setClassNames] = useState<Record<string, string>>({})
   const [classOptions, setClassOptions] = useState<ClassOption[]>([])
   const [materialOptions, setMaterialOptions] = useState<MaterialOption[]>([])
@@ -90,11 +106,7 @@ export function AssignmentsPage() {
               .in('school_id', schoolIds)
               .eq('status', 'active')
               .order('name')
-          : supabase
-              .from('classes')
-              .select('id, name, school_id')
-              .in('id', classIds)
-              .order('name')
+          : supabase.from('classes').select('id, name, school_id').in('id', classIds).order('name')
 
       const [assignmentsResponse, classesResponse, materialsResponse] = await Promise.all([
         assignmentQuery.order('created_at', { ascending: false }),
@@ -109,14 +121,71 @@ export function AssignmentsPage() {
 
       if (!assignmentsResponse.error) {
         const assignments = (assignmentsResponse.data ?? []) as AssignmentRow[]
-        setRows(assignments)
-
+        const assignmentIds = assignments.map((item) => item.id)
         const scopedClassIds = Array.from(new Set(assignments.map((item) => item.class_id)))
+
+        const [submissionResponse, studentMembershipResponse] = await Promise.all([
+          assignmentIds.length
+            ? supabase
+                .from('submissions')
+                .select('assignment_id, status')
+                .in('assignment_id', assignmentIds)
+            : Promise.resolve({ data: [], error: null }),
+          scopedClassIds.length
+            ? supabase
+                .from('memberships')
+                .select('class_id, role')
+                .in('class_id', scopedClassIds)
+                .eq('role', 'student')
+                .eq('status', 'active')
+            : Promise.resolve({ data: [], error: null }),
+        ])
+
+        const submissionRows = (submissionResponse.data ?? []) as SubmissionRow[]
+        const studentMemberships = (studentMembershipResponse.data ?? []) as MembershipRow[]
+
+        const submittedCountByAssignment = new Map<string, number>()
+        const pendingCountByAssignment = new Map<string, number>()
+        submissionRows.forEach((item) => {
+          if (item.status !== 'draft') {
+            submittedCountByAssignment.set(
+              item.assignment_id,
+              (submittedCountByAssignment.get(item.assignment_id) ?? 0) + 1,
+            )
+          }
+          if (item.status !== 'draft' && item.status !== 'completed') {
+            pendingCountByAssignment.set(
+              item.assignment_id,
+              (pendingCountByAssignment.get(item.assignment_id) ?? 0) + 1,
+            )
+          }
+        })
+
+        const studentsByClass = new Map<string, number>()
+        studentMemberships.forEach((item) => {
+          if (!item.class_id) return
+          studentsByClass.set(item.class_id, (studentsByClass.get(item.class_id) ?? 0) + 1)
+        })
+
+        setRows(
+          assignments.map((assignment) => {
+            const submittedCount = submittedCountByAssignment.get(assignment.id) ?? 0
+            const expectedStudents = studentsByClass.get(assignment.class_id) ?? 0
+
+            return {
+              ...assignment,
+              submittedCount,
+              pendingCount: pendingCountByAssignment.get(assignment.id) ?? 0,
+              submissionRate:
+                expectedStudents > 0
+                  ? Math.round((submittedCount / expectedStudents) * 100)
+                  : 0,
+            }
+          }),
+        )
+
         if (scopedClassIds.length) {
-          const { data: classes } = await supabase
-            .from('classes')
-            .select('id, name')
-            .in('id', scopedClassIds)
+          const { data: classes } = await supabase.from('classes').select('id, name').in('id', scopedClassIds)
           setClassNames(
             Object.fromEntries(
               (classes ?? []).map((item) => [item.id as string, item.name as string]),
@@ -199,12 +268,20 @@ export function AssignmentsPage() {
       return
     }
 
-    setRows((current) => [assignment as AssignmentRow, ...current])
+    setRows((current) => [
+      {
+        ...(assignment as AssignmentRow),
+        submittedCount: 0,
+        pendingCount: 0,
+        submissionRate: 0,
+      },
+      ...current,
+    ])
     setClassNames((current) => ({
       ...current,
       [targetClass.id]: targetClass.name,
     }))
-    setFeedback('作业和首条练习内容已经创建。')
+    setFeedback('作业已经创建完成，下一步可以去提醒学生开始打卡。')
     setForm((current) => ({
       ...current,
       materialId: '',
@@ -232,13 +309,17 @@ export function AssignmentsPage() {
         <div>
           <span className="eyebrow">Assignments</span>
           <h1>作业中心</h1>
+          <p>先布置作业，再盯提交率和待处理提交，老师最常用的两条链路都在这里。</p>
         </div>
       </header>
 
       <article className="panel">
-        <h2>布置新作业</h2>
+        <div className="panel-heading">
+          <h2>布置新作业</h2>
+          <span className="status-pill active">创建后可继续提醒学生</span>
+        </div>
         <p className="panel-copy">
-          今天先把作业主记录和第一条练习项接起来，足够演示教师端最常用的布置流程。
+          先创建作业主记录和第一条练习内容，足够覆盖老师最常用的布置流程。
         </p>
 
         <form className="inline-form" onSubmit={handleSubmit}>
@@ -319,10 +400,10 @@ export function AssignmentsPage() {
                 setForm((current) => ({ ...current, status: event.target.value }))
               }
             >
-              <option value="draft">draft</option>
-              <option value="published">published</option>
-              <option value="closed">closed</option>
-              <option value="archived">archived</option>
+              <option value="draft">草稿</option>
+              <option value="published">已发布</option>
+              <option value="closed">已截止</option>
+              <option value="archived">已归档</option>
             </select>
           </label>
 
@@ -334,9 +415,9 @@ export function AssignmentsPage() {
                 setForm((current) => ({ ...current, itemType: event.target.value }))
               }
             >
-              <option value="word">word</option>
-              <option value="sentence">sentence</option>
-              <option value="paragraph">paragraph</option>
+              <option value="word">单词</option>
+              <option value="sentence">句子</option>
+              <option value="paragraph">段落</option>
             </select>
           </label>
 
@@ -381,7 +462,7 @@ export function AssignmentsPage() {
 
           <div className="form-actions span-2">
             <button className="primary-button" disabled={submitting} type="submit">
-              {submitting ? '发布中...' : '创建作业'}
+              {submitting ? '创建中...' : '创建作业'}
             </button>
           </div>
         </form>
@@ -397,6 +478,8 @@ export function AssignmentsPage() {
                 <th>作业标题</th>
                 <th>班级</th>
                 <th>状态</th>
+                <th>提交率</th>
+                <th>待处理</th>
                 <th>截止时间</th>
               </tr>
             </thead>
@@ -405,7 +488,9 @@ export function AssignmentsPage() {
                 <tr key={row.id}>
                   <td>{row.title}</td>
                   <td>{classNames[row.class_id] || row.class_id}</td>
-                  <td>{row.status}</td>
+                  <td>{mapAssignmentStatus(row.status)}</td>
+                  <td>{row.status === 'draft' ? '-' : `${row.submissionRate}%`}</td>
+                  <td>{row.pendingCount > 0 ? `${row.pendingCount} 份` : '无'}</td>
                   <td>{row.due_at ? new Date(row.due_at).toLocaleString() : '未设置'}</td>
                 </tr>
               ))}
@@ -415,4 +500,11 @@ export function AssignmentsPage() {
       )}
     </section>
   )
+}
+
+function mapAssignmentStatus(status: string) {
+  if (status === 'published') return '已发布'
+  if (status === 'closed') return '已截止'
+  if (status === 'archived') return '已归档'
+  return '草稿'
 }
