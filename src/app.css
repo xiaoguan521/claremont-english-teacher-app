@@ -495,6 +495,36 @@
   color: #667995;
 }
 
+.speech-preview-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 18px 20px;
+  border-radius: 18px;
+  background: #f6f9ff;
+  border: 1px dashed #bfd4ff;
+}
+
+.speech-preview-card strong {
+  color: #23344e;
+}
+
+.speech-preview-card p {
+  margin: 8px 0 0;
+  color: #607089;
+  line-height: 1.6;
+}
+
+.speech-preview-player {
+  margin-top: 14px;
+}
+
+.speech-preview-player audio {
+  width: 100%;
+  min-width: 320px;
+}
+
 .assignment-cell {
   display: grid;
   gap: 6px;
@@ -578,6 +608,15 @@ td {
 
   .span-2 {
     grid-column: auto;
+  }
+
+  .speech-preview-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .speech-preview-player audio {
+    min-width: 0;
   }
 
   .stat-grid,

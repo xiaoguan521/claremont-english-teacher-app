@@ -61,6 +61,15 @@ export function AssignmentsPage() {
   const [materialOptions, setMaterialOptions] = useState<MaterialOption[]>([])
   const [selectedReferenceAudio, setSelectedReferenceAudio] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [speechPreviewUrl, setSpeechPreviewUrl] = useState<string | null>(null)
+  const [speechPreviewMeta, setSpeechPreviewMeta] = useState<{
+    providerLabel: string
+    model: string
+    mimeType: string
+    text: string
+  } | null>(null)
+  const [speechGenerating, setSpeechGenerating] = useState(false)
+  const [speechError, setSpeechError] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState({
@@ -378,6 +387,110 @@ export function AssignmentsPage() {
       )
     : materialOptions
 
+  const speechPreviewText =
+    form.ttsText.trim() || form.expectedText.trim() || form.promptText.trim()
+
+  useEffect(() => {
+    setSpeechError(null)
+    setSpeechPreviewMeta(null)
+    setSpeechPreviewUrl((current) => {
+      if (current) {
+        URL.revokeObjectURL(current)
+      }
+      return null
+    })
+  }, [form.classId, form.ttsText, form.expectedText, form.promptText])
+
+  useEffect(() => {
+    return () => {
+      if (speechPreviewUrl) {
+        URL.revokeObjectURL(speechPreviewUrl)
+      }
+    }
+  }, [speechPreviewUrl])
+
+  const handleSpeechPreview = async () => {
+    if (!form.classId) {
+      setSpeechError('先选择班级，再试听语音示范。')
+      return
+    }
+
+    const targetClass = classOptions.find((item) => item.id === form.classId)
+    if (!targetClass) {
+      setSpeechError('未找到所选班级。')
+      return
+    }
+
+    if (!speechPreviewText) {
+      setSpeechError('先填写 TTS 兜底文案、目标文本或提示内容，再试听示范。')
+      return
+    }
+
+    setSpeechGenerating(true)
+    setSpeechError(null)
+    setFeedback(null)
+
+    try {
+      const { data, error: invokeError } = await supabase.functions.invoke(
+        'generate-speech-sample',
+        {
+          body: {
+            schoolId: targetClass.school_id,
+            text: speechPreviewText,
+          },
+        },
+      )
+
+      if (invokeError) {
+        throw invokeError
+      }
+
+      if (data?.error) {
+        throw new Error(data.error as string)
+      }
+
+      const audioBase64 = data?.audioBase64 as string | undefined
+      const mimeType = (data?.mimeType as string | undefined) ?? 'audio/mpeg'
+      if (!audioBase64) {
+        throw new Error('语音服务没有返回音频内容。')
+      }
+
+      const byteCharacters = atob(audioBase64)
+      const bytes = Uint8Array.from(byteCharacters, (char) => char.charCodeAt(0))
+      const blob = new Blob([bytes], { type: mimeType })
+      const nextUrl = URL.createObjectURL(blob)
+
+      setSpeechPreviewUrl((current) => {
+        if (current) {
+          URL.revokeObjectURL(current)
+        }
+        return nextUrl
+      })
+      setSpeechPreviewMeta({
+        providerLabel: (data?.providerLabel as string | undefined) ?? '语音模型',
+        model: (data?.model as string | undefined) ?? 'unknown',
+        mimeType,
+        text: speechPreviewText,
+      })
+    } catch (previewError) {
+      console.error(previewError)
+      setSpeechPreviewUrl((current) => {
+        if (current) {
+          URL.revokeObjectURL(current)
+        }
+        return null
+      })
+      setSpeechPreviewMeta(null)
+      setSpeechError(
+        previewError instanceof Error
+          ? previewError.message
+          : '语音示范生成失败，请稍后再试。',
+      )
+    } finally {
+      setSpeechGenerating(false)
+    }
+  }
+
   return (
     <section className="page">
       <header className="page-header compact">
@@ -583,6 +696,38 @@ export function AssignmentsPage() {
                 <span className="helper-chip">已填写示范音频路径</span>
               ) : null}
               {form.ttsText.trim() ? <span className="helper-chip">已填写 TTS 兜底文案</span> : null}
+            </div>
+          ) : null}
+
+          <div className="span-2 speech-preview-card">
+            <div>
+              <strong>试听学生端示范语音</strong>
+              <p>
+                会调用当前校区已配置的语音模型。学生端实际播放时，也会优先走这条远程语音链路。
+              </p>
+            </div>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={handleSpeechPreview}
+              disabled={speechGenerating || !form.classId || !speechPreviewText}
+            >
+              {speechGenerating ? '生成中...' : '试听远程示范'}
+            </button>
+          </div>
+
+          {speechError ? <div className="error-banner span-2">{speechError}</div> : null}
+
+          {speechPreviewMeta && speechPreviewUrl ? (
+            <div className="info-banner span-2">
+              当前示范来自 {speechPreviewMeta.providerLabel} / {speechPreviewMeta.model}
+              <br />
+              文本：{speechPreviewMeta.text}
+              <div className="speech-preview-player">
+                <audio controls src={speechPreviewUrl}>
+                  你的浏览器不支持音频预览。
+                </audio>
+              </div>
             </div>
           ) : null}
 
