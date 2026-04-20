@@ -284,6 +284,49 @@
   text-decoration: none;
 }
 
+.queue-filter-bar {
+  padding: 18px 18px 0;
+  display: grid;
+  gap: 10px;
+}
+
+.queue-filter-bar > span {
+  color: #667995;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.filter-chip {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: #eef4ff;
+  color: #2d5fd4;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.filter-chip.active {
+  background: #2d5fd4;
+  color: #ffffff;
+}
+
+.filter-chip.danger {
+  background: #fff1f2;
+  color: #c2410c;
+}
+
+.filter-chip.danger.active {
+  background: #c2410c;
+  color: #ffffff;
+}
+
+.queue-filter-empty {
+  margin: 14px 18px 0;
+}
+
 .action-list {
   display: grid;
   gap: 14px;

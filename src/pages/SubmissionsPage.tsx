@@ -95,7 +95,10 @@ type QueueSummary = {
   pending: number
   processing: number
   completed: number
+  aiFailed: number
 }
+
+type QueueFilter = 'all' | 'aiFailed' | 'pending' | 'processing' | 'completed'
 
 type ReviewFormState = {
   status: string
@@ -122,7 +125,9 @@ export function SubmissionsPage() {
     pending: 0,
     processing: 0,
     completed: 0,
+    aiFailed: 0,
   })
+  const [activeFilter, setActiveFilter] = useState<QueueFilter>('all')
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null)
   const [formState, setFormState] = useState<ReviewFormState>(emptyFormState)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -156,6 +161,24 @@ export function SubmissionsPage() {
     [rows, selectedSubmissionId],
   )
 
+  const filteredRows = useMemo(() => {
+    switch (activeFilter) {
+      case 'aiFailed':
+        return rows.filter((item) => item.aiJobStatus === 'failed')
+      case 'pending':
+        return rows.filter(
+          (item) => item.status === 'uploaded' || item.status === 'queued',
+        )
+      case 'processing':
+        return rows.filter((item) => item.status === 'processing')
+      case 'completed':
+        return rows.filter((item) => item.status === 'completed')
+      case 'all':
+      default:
+        return rows
+    }
+  }, [activeFilter, rows])
+
   const loadRows = async () => {
     const assignmentQuery =
       canViewWholeSchool || classIds.length === 0
@@ -166,7 +189,7 @@ export function SubmissionsPage() {
 
     if (assignmentsError || !assignmentsData?.length) {
       setRows([])
-      setSummary({ pending: 0, processing: 0, completed: 0 })
+      setSummary({ pending: 0, processing: 0, completed: 0, aiFailed: 0 })
       setLoadError(assignmentsError?.message ?? null)
       return
     }
@@ -221,7 +244,7 @@ export function SubmissionsPage() {
       submissionAssetsResponse.error
     ) {
       setRows([])
-      setSummary({ pending: 0, processing: 0, completed: 0 })
+      setSummary({ pending: 0, processing: 0, completed: 0, aiFailed: 0 })
       setLoadError(
         submissionsResponse.error?.message ||
           profilesResponse.error?.message ||
@@ -262,6 +285,7 @@ export function SubmissionsPage() {
     let pending = 0
     let processing = 0
     let completed = 0
+    let aiFailed = 0
 
     const mappedRows = submissions.map((item) => {
       if (item.status === 'uploaded' || item.status === 'queued') pending += 1
@@ -274,6 +298,9 @@ export function SubmissionsPage() {
         : '未分班'
       const evaluation = evaluationMap.get(item.id)
       const evaluationJob = evaluationJobMap.get(item.id)
+      if (evaluationJob?.status === 'failed') {
+        aiFailed += 1
+      }
       const latestFeedback = item.latest_feedback || '等待老师点评或系统评分'
       const audioFileName = fileNameFromPath(audioMap.get(item.id)?.storage_path)
       const aiReview = buildAiReviewSnapshot(
@@ -307,7 +334,7 @@ export function SubmissionsPage() {
     })
 
     setRows(mappedRows)
-    setSummary({ pending, processing, completed })
+    setSummary({ pending, processing, completed, aiFailed })
     setLoadError(null)
     setSelectedSubmissionId((current) => {
       if (current && mappedRows.some((item) => item.id === current)) return current
@@ -318,6 +345,19 @@ export function SubmissionsPage() {
   useEffect(() => {
     void loadRows()
   }, [canViewWholeSchool, classIds, memberships, schoolIds])
+
+  useEffect(() => {
+    if (filteredRows.length === 0) {
+      setSelectedSubmissionId(null)
+      return
+    }
+
+    setSelectedSubmissionId((current) =>
+      current && filteredRows.some((item) => item.id === current)
+        ? current
+        : filteredRows[0].id,
+    )
+  }, [filteredRows])
 
   useEffect(() => {
     if (!selectedRow) {
@@ -552,6 +592,7 @@ export function SubmissionsPage() {
         <QueueStatCard title="待查看" value={String(summary.pending)} note="刚提交或排队中的记录" />
         <QueueStatCard title="处理中" value={String(summary.processing)} note="已经开始处理但还没完成点评" />
         <QueueStatCard title="已完成" value={String(summary.completed)} note="已经产生分数或反馈的记录" />
+        <QueueStatCard title="AI 异常" value={String(summary.aiFailed)} note="优先处理这些失败的 AI 初评记录" />
       </div>
 
       {loadError ? <div className="error-banner">{loadError}</div> : null}
@@ -561,6 +602,50 @@ export function SubmissionsPage() {
       ) : (
         <div className="review-workbench">
           <div className="table-card">
+            <div className="queue-filter-bar">
+              <span>快捷筛选</span>
+              <div className="helper-stack">
+                <button
+                  type="button"
+                  className={`filter-chip ${activeFilter === 'all' ? 'active' : ''}`}
+                  onClick={() => setActiveFilter('all')}
+                >
+                  全部
+                </button>
+                <button
+                  type="button"
+                  className={`filter-chip danger ${activeFilter === 'aiFailed' ? 'active' : ''}`}
+                  onClick={() => setActiveFilter('aiFailed')}
+                >
+                  AI 失败
+                </button>
+                <button
+                  type="button"
+                  className={`filter-chip ${activeFilter === 'pending' ? 'active' : ''}`}
+                  onClick={() => setActiveFilter('pending')}
+                >
+                  待查看
+                </button>
+                <button
+                  type="button"
+                  className={`filter-chip ${activeFilter === 'processing' ? 'active' : ''}`}
+                  onClick={() => setActiveFilter('processing')}
+                >
+                  处理中
+                </button>
+                <button
+                  type="button"
+                  className={`filter-chip ${activeFilter === 'completed' ? 'active' : ''}`}
+                  onClick={() => setActiveFilter('completed')}
+                >
+                  已完成
+                </button>
+              </div>
+            </div>
+
+            {filteredRows.length === 0 ? (
+              <div className="empty-inline queue-filter-empty">当前筛选下没有记录。</div>
+            ) : null}
             <table>
               <thead>
                 <tr>
@@ -574,7 +659,7 @@ export function SubmissionsPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
+                {filteredRows.map((row) => (
                   <tr
                     key={row.id}
                     className={row.id === selectedSubmissionId ? 'table-row-active' : undefined}
@@ -583,7 +668,14 @@ export function SubmissionsPage() {
                     <td>{row.studentName}</td>
                     <td>{row.className}</td>
                     <td>{row.assignmentTitle}</td>
-                    <td>{row.statusLabel}</td>
+                    <td>
+                      <div className="helper-stack">
+                        <span>{row.statusLabel}</span>
+                        {row.aiJobStatus === 'failed' ? (
+                          <span className="helper-chip danger">AI 失败</span>
+                        ) : null}
+                      </div>
+                    </td>
                     <td>{row.submittedAt}</td>
                     <td>{row.latestScore}</td>
                     <td className="feedback-cell">{row.latestFeedback}</td>
