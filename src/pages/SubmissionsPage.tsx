@@ -138,6 +138,7 @@ export function SubmissionsPage() {
   const [audioPreviewLoading, setAudioPreviewLoading] = useState(false)
   const [audioPreviewError, setAudioPreviewError] = useState<string | null>(null)
   const [isRetryingAiReview, setIsRetryingAiReview] = useState(false)
+  const [isBatchRetryingAiReview, setIsBatchRetryingAiReview] = useState(false)
 
   const schoolIds = useMemo(
     () => Array.from(new Set(memberships.map((item) => item.school_id))),
@@ -178,6 +179,24 @@ export function SubmissionsPage() {
         return rows
     }
   }, [activeFilter, rows])
+
+  const retryableFilteredRows = useMemo(
+    () => filteredRows.filter((item) => item.aiJobStatus === 'failed'),
+    [filteredRows],
+  )
+
+  const nextAiFailedRow = useMemo(() => {
+    if (retryableFilteredRows.length === 0) return null
+    if (!selectedSubmissionId) return retryableFilteredRows[0]
+
+    const currentIndex = retryableFilteredRows.findIndex(
+      (item) => item.id === selectedSubmissionId,
+    )
+    if (currentIndex >= 0 && currentIndex + 1 < retryableFilteredRows.length) {
+      return retryableFilteredRows[currentIndex + 1]
+    }
+    return retryableFilteredRows.find((item) => item.id !== selectedSubmissionId) ?? null
+  }, [retryableFilteredRows, selectedSubmissionId])
 
   const loadRows = async () => {
     const assignmentQuery =
@@ -545,25 +564,9 @@ export function SubmissionsPage() {
     setSaveSuccess(null)
 
     try {
-      const { data, error } = await supabase.functions.invoke('ai-review-submission', {
-        body: {
-          action: 'review_submission',
-          submissionId: selectedRow.id,
-        },
-      })
-
-      if (error) {
-        throw error
-      }
-
-      if (data?.error) {
-        throw new Error(data.error as string)
-      }
-
+      const message = await triggerAiReview(selectedRow.id)
       setSaveSuccess(
-        typeof data?.message === 'string' && data.message.trim() !== ''
-          ? data.message
-          : '已经重新发起 AI 初评，请稍后刷新查看结果。',
+        message || '已经重新发起 AI 初评，请稍后刷新查看结果。',
       )
       await loadRows()
       setSelectedSubmissionId(selectedRow.id)
@@ -576,6 +579,67 @@ export function SubmissionsPage() {
     } finally {
       setIsRetryingAiReview(false)
     }
+  }
+
+  const handleRetryFilteredAiReviews = async () => {
+    if (retryableFilteredRows.length === 0) return
+
+    setIsBatchRetryingAiReview(true)
+    setSaveError(null)
+    setSaveSuccess(null)
+
+    let successCount = 0
+    const failureMessages: string[] = []
+
+    for (const row of retryableFilteredRows) {
+      try {
+        await triggerAiReview(row.id)
+        successCount += 1
+      } catch (error) {
+        failureMessages.push(
+          `${row.studentName}：${error instanceof Error ? error.message : '重试失败'}`,
+        )
+      }
+    }
+
+    await loadRows()
+
+    if (failureMessages.length > 0) {
+      setSaveError(failureMessages.join('；'))
+    }
+    if (successCount > 0) {
+      setSaveSuccess(`已重新发起 ${successCount} 条 AI 初评。`)
+    }
+
+    setIsBatchRetryingAiReview(false)
+  }
+
+  const handleJumpToNextAiFailed = () => {
+    if (!nextAiFailedRow) return
+    setSelectedSubmissionId(nextAiFailedRow.id)
+    setSaveSuccess(`已切到下一条 AI 失败记录：${nextAiFailedRow.studentName}。`)
+    setSaveError(null)
+  }
+
+  const triggerAiReview = async (submissionId: string) => {
+    const { data, error } = await supabase.functions.invoke('ai-review-submission', {
+      body: {
+        action: 'review_submission',
+        submissionId,
+      },
+    })
+
+    if (error) {
+      throw error
+    }
+
+    if (data?.error) {
+      throw new Error(data.error as string)
+    }
+
+    return typeof data?.message === 'string' && data.message.trim() !== ''
+      ? data.message
+      : null
   }
 
   return (
@@ -641,6 +705,21 @@ export function SubmissionsPage() {
                   已完成
                 </button>
               </div>
+              {retryableFilteredRows.length > 0 ? (
+                <div className="queue-filter-actions">
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => void handleRetryFilteredAiReviews()}
+                    disabled={isBatchRetryingAiReview}
+                  >
+                    {isBatchRetryingAiReview
+                      ? '批量重试中...'
+                      : `批量重试 ${retryableFilteredRows.length} 条 AI 失败`}
+                  </button>
+                  <span>适合先把当前筛选里的 AI 异常单统一重新发起一轮。</span>
+                </div>
+              ) : null}
             </div>
 
             {filteredRows.length === 0 ? (
@@ -728,6 +807,19 @@ export function SubmissionsPage() {
 
                 {saveError ? <div className="error-banner">{saveError}</div> : null}
                 {saveSuccess ? <div className="success-banner">{saveSuccess}</div> : null}
+
+                {nextAiFailedRow ? (
+                  <div className="queue-filter-actions">
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={handleJumpToNextAiFailed}
+                    >
+                      查看下一条 AI 失败
+                    </button>
+                    <span>适合老师连续处理异常单，不用回到左侧列表重新点选。</span>
+                  </div>
+                ) : null}
 
                 <div className="inline-form">
                   <label>

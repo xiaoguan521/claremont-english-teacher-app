@@ -327,6 +327,19 @@
   margin: 14px 18px 0;
 }
 
+.queue-filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.queue-filter-actions span {
+  color: #607089;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .action-list {
   display: grid;
   gap: 14px;
