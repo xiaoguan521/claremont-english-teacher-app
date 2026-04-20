@@ -37,6 +37,13 @@ type SubmissionAssetRow = {
   storage_path: string
 }
 
+type EvaluationJobRow = {
+  submission_id: string
+  status: string | null
+  last_error: string | null
+  attempt_count: number | null
+}
+
 type ProfileRow = {
   id: string
   display_name: string | null
@@ -66,6 +73,9 @@ type SubmissionQueueRow = {
   audioStoragePath: string | null
   reviewProvider: string | null
   aiReview: AiReviewSnapshot | null
+  aiJobStatus: string | null
+  aiLastError: string | null
+  aiAttemptCount: number
 }
 
 type AiReviewSnapshot = {
@@ -122,6 +132,7 @@ export function SubmissionsPage() {
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null)
   const [audioPreviewLoading, setAudioPreviewLoading] = useState(false)
   const [audioPreviewError, setAudioPreviewError] = useState<string | null>(null)
+  const [isRetryingAiReview, setIsRetryingAiReview] = useState(false)
 
   const schoolIds = useMemo(
     () => Array.from(new Set(memberships.map((item) => item.school_id))),
@@ -169,6 +180,7 @@ export function SubmissionsPage() {
       profilesResponse,
       classesResponse,
       evaluationResultsResponse,
+      evaluationJobsResponse,
       submissionAssetsResponse,
     ] = await Promise.all([
       supabase
@@ -190,6 +202,10 @@ export function SubmissionsPage() {
         )
         .order('updated_at', { ascending: false }),
       supabase
+        .from('evaluation_jobs')
+        .select('submission_id, status, last_error, attempt_count, updated_at')
+        .order('updated_at', { ascending: false }),
+      supabase
         .from('submission_assets')
         .select('submission_id, storage_path')
         .eq('asset_type', 'audio')
@@ -201,6 +217,7 @@ export function SubmissionsPage() {
       profilesResponse.error ||
       classesResponse.error ||
       evaluationResultsResponse.error ||
+      evaluationJobsResponse.error ||
       submissionAssetsResponse.error
     ) {
       setRows([])
@@ -210,6 +227,7 @@ export function SubmissionsPage() {
           profilesResponse.error?.message ||
           classesResponse.error?.message ||
           evaluationResultsResponse.error?.message ||
+          evaluationJobsResponse.error?.message ||
           submissionAssetsResponse.error?.message ||
           '点评队列加载失败',
       )
@@ -218,6 +236,7 @@ export function SubmissionsPage() {
 
     const submissions = (submissionsResponse.data ?? []) as SubmissionRow[]
     const evaluationResults = (evaluationResultsResponse.data ?? []) as EvaluationResultRow[]
+    const evaluationJobs = (evaluationJobsResponse.data ?? []) as EvaluationJobRow[]
     const submissionAssets = (submissionAssetsResponse.data ?? []) as SubmissionAssetRow[]
 
     const assignmentMap = new Map(assignments.map((item) => [item.id, item]))
@@ -229,6 +248,9 @@ export function SubmissionsPage() {
     )
     const evaluationMap = new Map(
       evaluationResults.map((item) => [item.submission_id, item]),
+    )
+    const evaluationJobMap = new Map(
+      evaluationJobs.map((item) => [item.submission_id, item]),
     )
     const audioMap = new Map<string, SubmissionAssetRow>()
     submissionAssets.forEach((item) => {
@@ -251,6 +273,7 @@ export function SubmissionsPage() {
         ? classMap.get(assignment.class_id) ?? assignment.class_id
         : '未分班'
       const evaluation = evaluationMap.get(item.id)
+      const evaluationJob = evaluationJobMap.get(item.id)
       const latestFeedback = item.latest_feedback || '等待老师点评或系统评分'
       const audioFileName = fileNameFromPath(audioMap.get(item.id)?.storage_path)
       const aiReview = buildAiReviewSnapshot(
@@ -277,6 +300,9 @@ export function SubmissionsPage() {
         audioStoragePath: audioMap.get(item.id)?.storage_path ?? null,
         reviewProvider: evaluation?.provider ?? null,
         aiReview,
+        aiJobStatus: evaluationJob?.status ?? null,
+        aiLastError: evaluationJob?.last_error ?? null,
+        aiAttemptCount: evaluationJob?.attempt_count ?? 0,
       }
     })
 
@@ -471,6 +497,47 @@ export function SubmissionsPage() {
     setSaveError(null)
   }
 
+  const handleRetryAiReview = async () => {
+    if (!selectedRow) return
+
+    setIsRetryingAiReview(true)
+    setSaveError(null)
+    setSaveSuccess(null)
+
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-review-submission', {
+        body: {
+          action: 'review_submission',
+          submissionId: selectedRow.id,
+        },
+      })
+
+      if (error) {
+        throw error
+      }
+
+      if (data?.error) {
+        throw new Error(data.error as string)
+      }
+
+      setSaveSuccess(
+        typeof data?.message === 'string' && data.message.trim() !== ''
+          ? data.message
+          : '已经重新发起 AI 初评，请稍后刷新查看结果。',
+      )
+      await loadRows()
+      setSelectedSubmissionId(selectedRow.id)
+    } catch (retryError) {
+      setSaveError(
+        retryError instanceof Error
+          ? retryError.message
+          : '重新发起 AI 初评失败，请稍后再试。',
+      )
+    } finally {
+      setIsRetryingAiReview(false)
+    }
+  }
+
   return (
     <section className="page">
       <header className="page-header">
@@ -560,6 +627,11 @@ export function SubmissionsPage() {
                   aiReview={selectedRow.aiReview}
                   currentProvider={selectedRow.reviewProvider}
                   onAdopt={handleAdoptAiReview}
+                  aiJobStatus={selectedRow.aiJobStatus}
+                  aiLastError={selectedRow.aiLastError}
+                  aiAttemptCount={selectedRow.aiAttemptCount}
+                  onRetry={handleRetryAiReview}
+                  retrying={isRetryingAiReview}
                 />
 
                 {saveError ? <div className="error-banner">{saveError}</div> : null}
@@ -777,20 +849,59 @@ function AiReviewCard({
   aiReview,
   currentProvider,
   onAdopt,
+  aiJobStatus,
+  aiLastError,
+  aiAttemptCount,
+  onRetry,
+  retrying,
 }: {
   aiReview: AiReviewSnapshot | null
   currentProvider: string | null
   onAdopt: () => void
+  aiJobStatus: string | null
+  aiLastError: string | null
+  aiAttemptCount: number
+  onRetry: () => void
+  retrying: boolean
 }) {
+  const aiStatusLabel = mapAiJobStatus(aiJobStatus)
+  const aiStatusTone = aiJobStatus === 'failed' ? 'danger' : aiJobStatus === 'completed' ? 'success' : 'muted'
+
   if (!aiReview) {
     return (
       <div className="ai-review-card">
         <div className="audio-preview-header">
           <div>
             <strong>AI 初评</strong>
-            <p>当前还没有可参考的 AI transcript 或评分结果。</p>
+            <p>
+              {aiJobStatus === 'failed'
+                ? '这条作业的 AI 初评没有成功，老师可以先看失败原因，再决定重试还是直接人工点评。'
+                : '当前还没有可参考的 AI transcript 或评分结果。'}
+            </p>
+          </div>
+          <div className="helper-stack">
+            <span className={`helper-chip ${aiStatusTone}`}>{aiStatusLabel}</span>
+            {aiAttemptCount > 0 ? (
+              <span className="helper-chip muted">尝试 {aiAttemptCount} 次</span>
+            ) : null}
           </div>
         </div>
+        {aiLastError ? (
+          <div className="error-banner">
+            <strong>AI 失败原因：</strong>
+            {friendlyTeacherAiError(aiLastError)}
+          </div>
+        ) : (
+          <div className="empty-inline">AI 初评还没有开始，或者结果还没回写到这条记录。</div>
+        )}
+        {(aiJobStatus === 'failed' || aiJobStatus == null) ? (
+          <div className="speech-preview-actions">
+            <button className="ghost-button" type="button" onClick={onRetry} disabled={retrying}>
+              {retrying ? '重试中...' : '重新发起 AI 初评'}
+            </button>
+            <span>如果学生音频已经上传成功，可以先重新发起一次 AI 初评；不行的话老师也可以直接人工点评。</span>
+          </div>
+        ) : null}
       </div>
     )
   }
@@ -812,9 +923,17 @@ function AiReviewCard({
           <span className={`helper-chip ${isTeacherReviewed ? '' : 'success'}`}>
             {isTeacherReviewed ? '已复核' : '可参考'}
           </span>
+          <span className={`helper-chip ${aiStatusTone}`}>{aiStatusLabel}</span>
           <span className="helper-chip muted">{aiReview.provider}</span>
         </div>
       </div>
+
+      {aiLastError ? (
+        <div className="error-banner">
+          <strong>最近一次 AI 失败：</strong>
+          {friendlyTeacherAiError(aiLastError)}
+        </div>
+      ) : null}
 
       <div className="ai-review-grid">
         <MetaItem
@@ -869,6 +988,11 @@ function AiReviewCard({
         <button className="ghost-button" type="button" onClick={onAdopt}>
           采用 AI 初评到表单
         </button>
+        {aiJobStatus === 'failed' ? (
+          <button className="ghost-button" type="button" onClick={onRetry} disabled={retrying}>
+            {retrying ? '重试中...' : '重新发起 AI 初评'}
+          </button>
+        ) : null}
         <span>会把 AI 总结、分数、优点和建议带入右侧老师表单，方便直接复核。</span>
       </div>
     </div>
@@ -958,4 +1082,30 @@ function asString(value: unknown) {
 
 function asNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function mapAiJobStatus(status: string | null) {
+  if (status === 'failed') return 'AI 初评失败'
+  if (status === 'completed') return 'AI 初评完成'
+  if (status === 'processing') return 'AI 处理中'
+  if (status === 'queued' || status === 'pending') return 'AI 排队中'
+  return 'AI 未开始'
+}
+
+function friendlyTeacherAiError(error: string) {
+  const lowered = error.toLowerCase()
+  if (lowered.includes('transcription')) {
+    return '系统没有成功转写学生音频，建议让学生换一个安静环境重新提交，或者老师直接人工点评。'
+  }
+  if (
+    lowered.includes('503') ||
+    lowered.includes('temporarily unavailable') ||
+    lowered.includes('timeout')
+  ) {
+    return '上游 AI 服务刚才不可用，可以稍后重新发起一次 AI 初评。'
+  }
+  if (lowered.includes('download')) {
+    return '系统没有成功读取学生音频附件，建议让学生重新提交一次。'
+  }
+  return error
 }

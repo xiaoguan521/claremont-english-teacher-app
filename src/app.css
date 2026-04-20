@@ -556,6 +556,11 @@
   color: #1f7a3f;
 }
 
+.helper-chip.danger {
+  background: #fff1f2;
+  color: #c2410c;
+}
+
 .helper-chip.muted {
   background: #f0f3f8;
   color: #667995;
