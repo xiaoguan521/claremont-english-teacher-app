@@ -62,6 +62,7 @@ export function AssignmentsPage() {
   const [selectedReferenceAudio, setSelectedReferenceAudio] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [speechPreviewUrl, setSpeechPreviewUrl] = useState<string | null>(null)
+  const [speechPreviewBlob, setSpeechPreviewBlob] = useState<Blob | null>(null)
   const [speechPreviewMeta, setSpeechPreviewMeta] = useState<{
     providerLabel: string
     model: string
@@ -69,6 +70,7 @@ export function AssignmentsPage() {
     text: string
   } | null>(null)
   const [speechGenerating, setSpeechGenerating] = useState(false)
+  const [savingSpeechReference, setSavingSpeechReference] = useState(false)
   const [speechError, setSpeechError] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -260,6 +262,32 @@ export function AssignmentsPage() {
     void load()
   }, [canViewWholeSchool, classIds, form.classId, schoolIds])
 
+  const uploadReferenceAudio = async ({
+    audioFile,
+    schoolId,
+    fileName,
+  }: {
+    audioFile: Blob
+    schoolId: string
+    fileName: string
+  }) => {
+    const safeName = fileName.replace(/\s+/g, '-')
+    const objectPath = `${schoolId}/reference-audio/${Date.now()}-${safeName}`
+    const { error: uploadError } = await supabase.storage
+      .from('reference-audio')
+      .upload(objectPath, audioFile, {
+        cacheControl: '3600',
+        contentType: audioFile.type || 'audio/mpeg',
+        upsert: false,
+      })
+
+    if (uploadError) {
+      throw uploadError
+    }
+
+    return `reference-audio:${objectPath}`
+  }
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
@@ -282,23 +310,19 @@ export function AssignmentsPage() {
     let resolvedReferenceAudioPath = form.referenceAudioPath.trim()
 
     if (selectedReferenceAudio) {
-      const safeName = selectedReferenceAudio.name.replace(/\s+/g, '-')
-      const objectPath = `${targetClass.school_id}/reference-audio/${Date.now()}-${safeName}`
-      const { error: uploadError } = await supabase.storage
-        .from('materials')
-        .upload(objectPath, selectedReferenceAudio, {
-          cacheControl: '3600',
-          contentType: selectedReferenceAudio.type || 'audio/mpeg',
-          upsert: false,
+      try {
+        resolvedReferenceAudioPath = await uploadReferenceAudio({
+          audioFile: selectedReferenceAudio,
+          schoolId: targetClass.school_id,
+          fileName: selectedReferenceAudio.name,
         })
-
-      if (uploadError) {
+      } catch (uploadError) {
         setSubmitting(false)
-        setError(uploadError.message)
+        setError(
+          uploadError instanceof Error ? uploadError.message : '示范音频上传失败，请稍后重试。',
+        )
         return
       }
-
-      resolvedReferenceAudioPath = `materials:${objectPath}`
     }
 
     const { data: assignment, error: assignmentError } = await supabase
@@ -392,6 +416,7 @@ export function AssignmentsPage() {
 
   useEffect(() => {
     setSpeechError(null)
+    setSpeechPreviewBlob(null)
     setSpeechPreviewMeta(null)
     setSpeechPreviewUrl((current) => {
       if (current) {
@@ -460,6 +485,7 @@ export function AssignmentsPage() {
       const blob = new Blob([bytes], { type: mimeType })
       const nextUrl = URL.createObjectURL(blob)
 
+      setSpeechPreviewBlob(blob)
       setSpeechPreviewUrl((current) => {
         if (current) {
           URL.revokeObjectURL(current)
@@ -474,6 +500,7 @@ export function AssignmentsPage() {
       })
     } catch (previewError) {
       console.error(previewError)
+      setSpeechPreviewBlob(null)
       setSpeechPreviewUrl((current) => {
         if (current) {
           URL.revokeObjectURL(current)
@@ -488,6 +515,49 @@ export function AssignmentsPage() {
       )
     } finally {
       setSpeechGenerating(false)
+    }
+  }
+
+  const handleSavePreviewAsReferenceAudio = async () => {
+    if (!speechPreviewBlob || !speechPreviewMeta) {
+      setSpeechError('先生成试听语音，再保存为示范音频。')
+      return
+    }
+
+    const targetClass = classOptions.find((item) => item.id === form.classId)
+    if (!targetClass) {
+      setSpeechError('未找到所选班级。')
+      return
+    }
+
+    setSavingSpeechReference(true)
+    setSpeechError(null)
+    setFeedback(null)
+
+    try {
+      const referenceAudioPath = await uploadReferenceAudio({
+        audioFile: speechPreviewBlob,
+        schoolId: targetClass.school_id,
+        fileName: `generated-sample-${Date.now()}.${extensionForMimeType(
+          speechPreviewMeta.mimeType,
+        )}`,
+      })
+
+      setSelectedReferenceAudio(null)
+      setForm((current) => ({
+        ...current,
+        referenceAudioPath,
+      }))
+      setFeedback('已将当前试听语音保存为示范音频，创建作业时会直接引用这条音频。')
+    } catch (saveError) {
+      console.error(saveError)
+      setSpeechError(
+        saveError instanceof Error
+          ? saveError.message
+          : '保存示范音频失败，请稍后再试。',
+      )
+    } finally {
+      setSavingSpeechReference(false)
     }
   }
 
@@ -686,7 +756,7 @@ export function AssignmentsPage() {
                   referenceAudioPath: event.target.value,
                 }))
               }
-              placeholder="可填写 materials:school-id/reference-audio/demo.mp3"
+              placeholder="可填写 reference-audio:school-id/reference-audio/demo.mp3"
             />
           </label>
 
@@ -727,6 +797,17 @@ export function AssignmentsPage() {
                 <audio controls src={speechPreviewUrl}>
                   你的浏览器不支持音频预览。
                 </audio>
+              </div>
+              <div className="speech-preview-actions">
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={handleSavePreviewAsReferenceAudio}
+                  disabled={savingSpeechReference}
+                >
+                  {savingSpeechReference ? '保存中...' : '保存为示范音频'}
+                </button>
+                <span>保存后会写入 `reference-audio`，创建作业时直接复用。</span>
               </div>
             </div>
           ) : null}
@@ -804,4 +885,13 @@ function mapAssignmentStatus(status: string) {
   if (status === 'closed') return '已截止'
   if (status === 'archived') return '已归档'
   return '草稿'
+}
+
+function extensionForMimeType(mimeType: string) {
+  if (mimeType.includes('wav')) return 'wav'
+  if (mimeType.includes('aac')) return 'aac'
+  if (mimeType.includes('ogg')) return 'ogg'
+  if (mimeType.includes('webm')) return 'webm'
+  if (mimeType.includes('mp4') || mimeType.includes('m4a')) return 'm4a'
+  return 'mp3'
 }

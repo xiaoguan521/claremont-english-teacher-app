@@ -525,6 +525,20 @@
   min-width: 320px;
 }
 
+.speech-preview-actions {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.speech-preview-actions span {
+  color: #607089;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .assignment-cell {
   display: grid;
   gap: 6px;
@@ -617,6 +631,10 @@ td {
 
   .speech-preview-player audio {
     min-width: 0;
+  }
+
+  .speech-preview-actions {
+    align-items: flex-start;
   }
 
   .stat-grid,
