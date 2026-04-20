@@ -21,9 +21,15 @@ type SubmissionRow = {
 
 type EvaluationResultRow = {
   submission_id: string
+  provider: string | null
+  overall_score: number | null
+  pronunciation_score: number | null
+  fluency_score: number | null
+  completeness_score: number | null
   encouragement: string | null
   strengths: unknown
   improvement_points: unknown
+  raw_result: unknown
 }
 
 type SubmissionAssetRow = {
@@ -58,6 +64,21 @@ type SubmissionQueueRow = {
   improvementPoints: string[]
   audioFileName: string | null
   audioStoragePath: string | null
+  reviewProvider: string | null
+  aiReview: AiReviewSnapshot | null
+}
+
+type AiReviewSnapshot = {
+  provider: string
+  summaryFeedback: string
+  transcript: string
+  overallScore: number | null
+  pronunciationScore: number | null
+  fluencyScore: number | null
+  completenessScore: number | null
+  strengths: string[]
+  improvementPoints: string[]
+  encouragement: string
 }
 
 type QueueSummary = {
@@ -164,7 +185,9 @@ export function SubmissionsPage() {
         : Promise.resolve({ data: [], error: null }),
       supabase
         .from('evaluation_results')
-        .select('submission_id, encouragement, strengths, improvement_points')
+        .select(
+          'submission_id, provider, overall_score, pronunciation_score, fluency_score, completeness_score, encouragement, strengths, improvement_points, raw_result',
+        )
         .order('updated_at', { ascending: false }),
       supabase
         .from('submission_assets')
@@ -230,6 +253,10 @@ export function SubmissionsPage() {
       const evaluation = evaluationMap.get(item.id)
       const latestFeedback = item.latest_feedback || '等待老师点评或系统评分'
       const audioFileName = fileNameFromPath(audioMap.get(item.id)?.storage_path)
+      const aiReview = buildAiReviewSnapshot(
+        evaluation,
+        item.latest_feedback ?? '',
+      )
 
       return {
         id: item.id,
@@ -248,6 +275,8 @@ export function SubmissionsPage() {
         improvementPoints: asStringList(evaluation?.improvement_points),
         audioFileName,
         audioStoragePath: audioMap.get(item.id)?.storage_path ?? null,
+        reviewProvider: evaluation?.provider ?? null,
+        aiReview,
       }
     })
 
@@ -365,6 +394,7 @@ export function SubmissionsPage() {
       improvementPoints.length > 0
 
     if (shouldPersistEvaluation) {
+      const preservedAiReview = selectedRow.aiReview
       const { error: evaluationError } = await supabase
         .from('evaluation_results')
         .upsert(
@@ -375,6 +405,22 @@ export function SubmissionsPage() {
             strengths,
             improvement_points: improvementPoints,
             encouragement: formState.encouragement.trim() || null,
+            raw_result: preservedAiReview
+              ? {
+                  previousAiReview: {
+                    provider: preservedAiReview.provider,
+                    summaryFeedback: preservedAiReview.summaryFeedback,
+                    transcript: preservedAiReview.transcript,
+                    overallScore: preservedAiReview.overallScore,
+                    pronunciationScore: preservedAiReview.pronunciationScore,
+                    fluencyScore: preservedAiReview.fluencyScore,
+                    completenessScore: preservedAiReview.completenessScore,
+                    strengths: preservedAiReview.strengths,
+                    improvementPoints: preservedAiReview.improvementPoints,
+                    encouragement: preservedAiReview.encouragement,
+                  },
+                }
+              : null,
           },
           { onConflict: 'submission_id' },
         )
@@ -406,6 +452,23 @@ export function SubmissionsPage() {
     if (nextQueuedRow) {
       setSelectedSubmissionId(nextQueuedRow.id)
     }
+  }
+
+  const handleAdoptAiReview = () => {
+    const aiReview = selectedRow?.aiReview
+    if (!selectedRow || !aiReview) return
+
+    setFormState((current) => ({
+      ...current,
+      status: current.status === 'failed' ? 'processing' : current.status,
+      latestScore: aiReview.overallScore != null ? `${aiReview.overallScore}` : '',
+      latestFeedback: aiReview.summaryFeedback,
+      encouragement: aiReview.encouragement,
+      strengths: aiReview.strengths.join('\n'),
+      improvementPoints: aiReview.improvementPoints.join('\n'),
+    }))
+    setSaveSuccess('已把 AI 初评内容带入老师表单，你可以直接微调后保存。')
+    setSaveError(null)
   }
 
   return (
@@ -491,6 +554,12 @@ export function SubmissionsPage() {
                   previewUrl={audioPreviewUrl}
                   loading={audioPreviewLoading}
                   error={audioPreviewError}
+                />
+
+                <AiReviewCard
+                  aiReview={selectedRow.aiReview}
+                  currentProvider={selectedRow.reviewProvider}
+                  onAdopt={handleAdoptAiReview}
                 />
 
                 {saveError ? <div className="error-banner">{saveError}</div> : null}
@@ -702,4 +771,191 @@ function AudioPreviewCard({
       {previewUrl ? <audio className="audio-player" controls src={previewUrl} /> : null}
     </div>
   )
+}
+
+function AiReviewCard({
+  aiReview,
+  currentProvider,
+  onAdopt,
+}: {
+  aiReview: AiReviewSnapshot | null
+  currentProvider: string | null
+  onAdopt: () => void
+}) {
+  if (!aiReview) {
+    return (
+      <div className="ai-review-card">
+        <div className="audio-preview-header">
+          <div>
+            <strong>AI 初评</strong>
+            <p>当前还没有可参考的 AI transcript 或评分结果。</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const isTeacherReviewed = currentProvider === 'teacher-review'
+
+  return (
+    <div className="ai-review-card">
+      <div className="audio-preview-header">
+        <div>
+          <strong>AI 初评</strong>
+          <p>
+            {isTeacherReviewed
+              ? '老师已经复核过这条作业，下面保留的是 AI 初评快照，方便回看。'
+              : '这是系统先给出的 transcript、分数和建议，老师可以直接采用或继续微调。'}
+          </p>
+        </div>
+        <div className="helper-stack">
+          <span className={`helper-chip ${isTeacherReviewed ? '' : 'success'}`}>
+            {isTeacherReviewed ? '已复核' : '可参考'}
+          </span>
+          <span className="helper-chip muted">{aiReview.provider}</span>
+        </div>
+      </div>
+
+      <div className="ai-review-grid">
+        <MetaItem
+          label="AI 总分"
+          value={aiReview.overallScore != null ? `${aiReview.overallScore}` : '-'}
+        />
+        <MetaItem
+          label="发音"
+          value={
+            aiReview.pronunciationScore != null ? `${aiReview.pronunciationScore}` : '-'
+          }
+        />
+        <MetaItem
+          label="流利度"
+          value={aiReview.fluencyScore != null ? `${aiReview.fluencyScore}` : '-'}
+        />
+        <MetaItem
+          label="完整度"
+          value={aiReview.completenessScore != null ? `${aiReview.completenessScore}` : '-'}
+        />
+      </div>
+
+      <div className="ai-review-section">
+        <span>AI transcript</span>
+        <strong>{aiReview.transcript || '暂时没有转写内容'}</strong>
+      </div>
+
+      <div className="ai-review-section">
+        <span>AI 总结</span>
+        <p>{aiReview.summaryFeedback || '暂时没有总结反馈。'}</p>
+      </div>
+
+      <div className="ai-review-list-grid">
+        <ReviewList
+          title="做得好的地方"
+          items={aiReview.strengths}
+          emptyText="AI 暂时没有提取优点。"
+        />
+        <ReviewList
+          title="建议继续加强"
+          items={aiReview.improvementPoints}
+          emptyText="AI 暂时没有提取建议。"
+        />
+      </div>
+
+      <div className="ai-review-section">
+        <span>鼓励语</span>
+        <p>{aiReview.encouragement || '继续加油，老师会再补充点评。'}</p>
+      </div>
+
+      <div className="speech-preview-actions">
+        <button className="ghost-button" type="button" onClick={onAdopt}>
+          采用 AI 初评到表单
+        </button>
+        <span>会把 AI 总结、分数、优点和建议带入右侧老师表单，方便直接复核。</span>
+      </div>
+    </div>
+  )
+}
+
+function ReviewList({
+  title,
+  items,
+  emptyText,
+}: {
+  title: string
+  items: string[]
+  emptyText: string
+}) {
+  return (
+    <div className="ai-review-list">
+      <span>{title}</span>
+      {items.length === 0 ? (
+        <p>{emptyText}</p>
+      ) : (
+        <ul>
+          {items.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function buildAiReviewSnapshot(
+  evaluation: EvaluationResultRow | undefined,
+  latestFeedback: string,
+): AiReviewSnapshot | null {
+  if (!evaluation) return null
+
+  if (evaluation.provider === 'teacher-review') {
+    return readStoredAiReviewSnapshot(evaluation.raw_result)
+  }
+
+  return {
+    provider: evaluation.provider ?? 'ai-review',
+    summaryFeedback: latestFeedback.trim(),
+    transcript: readTranscript(evaluation.raw_result),
+    overallScore: evaluation.overall_score,
+    pronunciationScore: evaluation.pronunciation_score,
+    fluencyScore: evaluation.fluency_score,
+    completenessScore: evaluation.completeness_score,
+    strengths: asStringList(evaluation.strengths),
+    improvementPoints: asStringList(evaluation.improvement_points),
+    encouragement: evaluation.encouragement ?? '',
+  }
+}
+
+function readStoredAiReviewSnapshot(rawResult: unknown): AiReviewSnapshot | null {
+  const record = asRecord(rawResult)
+  const previous = asRecord(record?.previousAiReview)
+  if (!previous) return null
+
+  return {
+    provider: asString(previous.provider) ?? 'ai-review',
+    summaryFeedback: asString(previous.summaryFeedback) ?? '',
+    transcript: asString(previous.transcript) ?? '',
+    overallScore: asNumber(previous.overallScore),
+    pronunciationScore: asNumber(previous.pronunciationScore),
+    fluencyScore: asNumber(previous.fluencyScore),
+    completenessScore: asNumber(previous.completenessScore),
+    strengths: asStringList(previous.strengths),
+    improvementPoints: asStringList(previous.improvementPoints),
+    encouragement: asString(previous.encouragement) ?? '',
+  }
+}
+
+function readTranscript(rawResult: unknown) {
+  const record = asRecord(rawResult)
+  return asString(record?.transcript) ?? ''
+}
+
+function asRecord(value: unknown) {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null
+}
+
+function asString(value: unknown) {
+  return typeof value === 'string' ? value : null
+}
+
+function asNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
