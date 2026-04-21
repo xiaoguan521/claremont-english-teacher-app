@@ -89,6 +89,7 @@ type AiReviewSnapshot = {
   strengths: string[]
   improvementPoints: string[]
   encouragement: string
+  taskReviews?: unknown[]
 }
 
 type QueueSummary = {
@@ -499,12 +500,13 @@ export function SubmissionsPage() {
                     overallScore: preservedAiReview.overallScore,
                     pronunciationScore: preservedAiReview.pronunciationScore,
                     fluencyScore: preservedAiReview.fluencyScore,
-                    completenessScore: preservedAiReview.completenessScore,
-                    strengths: preservedAiReview.strengths,
-                    improvementPoints: preservedAiReview.improvementPoints,
-                    encouragement: preservedAiReview.encouragement,
-                  },
-                }
+                  completenessScore: preservedAiReview.completenessScore,
+                  strengths: preservedAiReview.strengths,
+                  improvementPoints: preservedAiReview.improvementPoints,
+                  encouragement: preservedAiReview.encouragement,
+                  taskReviews: preservedAiReview.taskReviews ?? [],
+                },
+              }
               : null,
           },
           { onConflict: 'submission_id' },
@@ -1248,6 +1250,7 @@ function readStoredAiReviewSnapshot(rawResult: unknown): AiReviewSnapshot | null
     strengths: asStringList(previous.strengths),
     improvementPoints: asStringList(previous.improvementPoints),
     encouragement: asString(previous.encouragement) ?? '',
+    taskReviews: Array.isArray(previous.taskReviews) ? previous.taskReviews : [],
   }
 }
 
