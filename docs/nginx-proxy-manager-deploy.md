@@ -96,6 +96,10 @@ server {
 
 然后再由 `Nginx Proxy Manager` 反代到 `127.0.0.1:8084`。
 
+仓库里也已经放好了可直接改路径使用的示例文件：
+
+- [deploy/nginx/teacher.201807.xyz.conf.example](/Volumes/移动磁盘/peixun%20/teacher_app/deploy/nginx/teacher.201807.xyz.conf.example)
+
 ## 四、部署后检查
 
 访问：
