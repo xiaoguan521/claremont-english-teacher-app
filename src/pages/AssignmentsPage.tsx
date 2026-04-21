@@ -68,6 +68,8 @@ export function AssignmentsPage() {
     model: string
     mimeType: string
     text: string
+    cached: boolean
+    storagePath: string | null
   } | null>(null)
   const [speechGenerating, setSpeechGenerating] = useState(false)
   const [savingSpeechReference, setSavingSpeechReference] = useState(false)
@@ -497,6 +499,8 @@ export function AssignmentsPage() {
         model: (data?.model as string | undefined) ?? 'unknown',
         mimeType,
         text: speechPreviewText,
+        cached: Boolean(data?.cached),
+        storagePath: typeof data?.storagePath === 'string' ? data.storagePath : null,
       })
     } catch (previewError) {
       console.error(previewError)
@@ -535,20 +539,26 @@ export function AssignmentsPage() {
     setFeedback(null)
 
     try {
-      const referenceAudioPath = await uploadReferenceAudio({
-        audioFile: speechPreviewBlob,
-        schoolId: targetClass.school_id,
-        fileName: `generated-sample-${Date.now()}.${extensionForMimeType(
-          speechPreviewMeta.mimeType,
-        )}`,
-      })
+      const referenceAudioPath = speechPreviewMeta.storagePath
+        ? speechPreviewMeta.storagePath
+        : await uploadReferenceAudio({
+            audioFile: speechPreviewBlob,
+            schoolId: targetClass.school_id,
+            fileName: `generated-sample-${Date.now()}.${extensionForMimeType(
+              speechPreviewMeta.mimeType,
+            )}`,
+          })
 
       setSelectedReferenceAudio(null)
       setForm((current) => ({
         ...current,
         referenceAudioPath,
       }))
-      setFeedback('已将当前试听语音保存为示范音频，创建作业时会直接引用这条音频。')
+      setFeedback(
+        speechPreviewMeta.storagePath
+          ? '已直接引用当前 AI 缓存语音，创建作业时学生端会优先播放这条示范音频。'
+          : '已将当前试听语音保存为示范音频，创建作业时会直接引用这条音频。',
+      )
     } catch (saveError) {
       console.error(saveError)
       setSpeechError(
@@ -792,6 +802,9 @@ export function AssignmentsPage() {
             <div className="info-banner span-2">
               当前示范来自 {speechPreviewMeta.providerLabel} / {speechPreviewMeta.model}
               <br />
+              状态：
+              {speechPreviewMeta.cached ? ' 已命中 AI 缓存语音' : ' 首次生成，保存后会进入 AI 缓存'}
+              <br />
               文本：{speechPreviewMeta.text}
               <div className="speech-preview-player">
                 <audio controls src={speechPreviewUrl}>
@@ -805,9 +818,17 @@ export function AssignmentsPage() {
                   onClick={handleSavePreviewAsReferenceAudio}
                   disabled={savingSpeechReference}
                 >
-                  {savingSpeechReference ? '保存中...' : '保存为示范音频'}
+                  {savingSpeechReference
+                    ? '保存中...'
+                    : speechPreviewMeta.storagePath
+                      ? '使用当前 AI 缓存'
+                      : '保存为示范音频'}
                 </button>
-                <span>保存后会写入 `reference-audio`，创建作业时直接复用。</span>
+                <span>
+                  {speechPreviewMeta.storagePath
+                    ? '当前试听语音已经在 `reference-audio` 里，可直接作为示范音频复用。'
+                    : '保存后会写入 `reference-audio`，创建作业时直接复用。'}
+                </span>
               </div>
             </div>
           ) : null}
@@ -852,7 +873,11 @@ export function AssignmentsPage() {
                   <td>
                     <div className="helper-stack">
                       {row.referenceAudioPath ? (
-                        <span className="helper-chip success">示范音频</span>
+                        <span className="helper-chip success">
+                          {row.referenceAudioPath.includes('/ai-generated-speech/')
+                            ? 'AI 缓存语音'
+                            : '示范音频'}
+                        </span>
                       ) : null}
                       {row.ttsText ? <span className="helper-chip">TTS 兜底</span> : null}
                       {!row.referenceAudioPath && !row.ttsText ? (
