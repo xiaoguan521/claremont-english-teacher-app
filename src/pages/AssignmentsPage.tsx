@@ -21,8 +21,10 @@ type AssignmentItemRow = {
   item_type: string
   title: string | null
   prompt_text: string
+  expected_text: string | null
   tts_text: string | null
   reference_audio_path: string | null
+  region_id: string | null
 }
 
 type MembershipRow = {
@@ -42,6 +44,40 @@ type MaterialOption = {
   school_id: string
 }
 
+type MaterialPageRow = {
+  id: string
+  page_number: number
+}
+
+type MaterialPageRegionRow = {
+  id: string
+  material_page_id: string
+  display_text: string
+  prompt_text: string | null
+  expected_text: string | null
+  tts_text: string | null
+  sort_order: number
+}
+
+type MaterialRegionAssetRow = {
+  region_id: string
+  asset_role: string
+  storage_bucket: string
+  storage_path: string
+}
+
+type MaterialRegionOption = {
+  id: string
+  materialPageId: string
+  pageNumber: number
+  displayText: string
+  promptText: string | null
+  expectedText: string | null
+  ttsText: string | null
+  referenceAudioPath: string | null
+  sortOrder: number
+}
+
 type AssignmentView = AssignmentRow & {
   submittedCount: number
   pendingCount: number
@@ -49,8 +85,10 @@ type AssignmentView = AssignmentRow & {
   itemType: string
   itemTitle: string | null
   promptText: string
+  expectedText: string | null
   ttsText: string | null
   referenceAudioPath: string | null
+  regionId: string | null
 }
 
 export function AssignmentsPage() {
@@ -59,6 +97,8 @@ export function AssignmentsPage() {
   const [classNames, setClassNames] = useState<Record<string, string>>({})
   const [classOptions, setClassOptions] = useState<ClassOption[]>([])
   const [materialOptions, setMaterialOptions] = useState<MaterialOption[]>([])
+  const [materialRegionOptions, setMaterialRegionOptions] = useState<MaterialRegionOption[]>([])
+  const [loadingMaterialRegions, setLoadingMaterialRegions] = useState(false)
   const [selectedReferenceAudio, setSelectedReferenceAudio] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [speechPreviewUrl, setSpeechPreviewUrl] = useState<string | null>(null)
@@ -83,6 +123,7 @@ export function AssignmentsPage() {
     description: '',
     dueAt: '',
     status: 'draft',
+    regionId: '',
     itemType: 'sentence',
     itemTitle: '',
     promptText: '',
@@ -172,9 +213,9 @@ export function AssignmentsPage() {
             : Promise.resolve({ data: [], error: null }),
           assignmentIds.length
             ? supabase
-                .from('assignment_items')
-                .select(
-                  'assignment_id, item_type, title, prompt_text, tts_text, reference_audio_path, sort_order',
+              .from('assignment_items')
+              .select(
+                  'assignment_id, item_type, title, prompt_text, expected_text, tts_text, reference_audio_path, region_id, sort_order',
                 )
                 .in('assignment_id', assignmentIds)
                 .order('sort_order', { ascending: true })
@@ -232,8 +273,10 @@ export function AssignmentsPage() {
               itemType: firstItem?.item_type ?? 'sentence',
               itemTitle: firstItem?.title ?? null,
               promptText: firstItem?.prompt_text ?? '',
+              expectedText: firstItem?.expected_text ?? null,
               ttsText: firstItem?.tts_text ?? null,
               referenceAudioPath: firstItem?.reference_audio_path ?? null,
+              regionId: firstItem?.region_id ?? null,
             }
           }),
         )
@@ -263,6 +306,135 @@ export function AssignmentsPage() {
 
     void load()
   }, [canViewWholeSchool, classIds, form.classId, schoolIds])
+
+  useEffect(() => {
+    const loadMaterialRegions = async () => {
+      if (!form.materialId) {
+        setMaterialRegionOptions([])
+        setForm((current) => ({ ...current, regionId: '' }))
+        return
+      }
+
+      setLoadingMaterialRegions(true)
+
+      const { data: pagesData, error: pagesError } = await supabase
+        .from('material_pages')
+        .select('id, page_number')
+        .eq('material_id', form.materialId)
+        .eq('status', 'active')
+        .order('page_number')
+
+      if (pagesError) {
+        setLoadingMaterialRegions(false)
+        setMaterialRegionOptions([])
+        return
+      }
+
+      const materialPages = (pagesData ?? []) as MaterialPageRow[]
+      const pageIds = materialPages.map((item) => item.id)
+      if (pageIds.length === 0) {
+        setLoadingMaterialRegions(false)
+        setMaterialRegionOptions([])
+        setForm((current) => ({ ...current, regionId: '' }))
+        return
+      }
+
+      const regionsResponse = await supabase
+        .from('material_page_regions')
+        .select(
+          'id, material_page_id, display_text, prompt_text, expected_text, tts_text, sort_order',
+        )
+        .in('material_page_id', pageIds)
+        .eq('status', 'active')
+        .order('sort_order', { ascending: true })
+
+      if (regionsResponse.error) {
+        setLoadingMaterialRegions(false)
+        setMaterialRegionOptions([])
+        return
+      }
+
+      const regionRows = (regionsResponse.data ?? []) as MaterialPageRegionRow[]
+      const regionIds = regionRows.map((item) => item.id)
+
+      let assetRows: MaterialRegionAssetRow[] = []
+      if (regionIds.length > 0) {
+        const { data: fetchedAssets } = await supabase
+          .from('material_region_assets')
+          .select('region_id, asset_role, storage_bucket, storage_path')
+          .in('region_id', regionIds)
+          .eq('status', 'active')
+          .in('asset_role', ['reference_audio', 'ai_reference_audio'])
+          .order('sort_order', { ascending: true })
+        assetRows = (fetchedAssets ?? []) as MaterialRegionAssetRow[]
+      }
+
+      const pageNumbersById = new Map(materialPages.map((item) => [item.id, item.page_number]))
+      const referenceAudioByRegion = new Map<string, string>()
+      assetRows.forEach((asset) => {
+        if (!referenceAudioByRegion.has(asset.region_id)) {
+          referenceAudioByRegion.set(
+            asset.region_id,
+            `${asset.storage_bucket}:${asset.storage_path}`,
+          )
+        }
+      })
+
+      const nextOptions = regionRows
+        .map((region) => ({
+          id: region.id,
+          materialPageId: region.material_page_id,
+          pageNumber: pageNumbersById.get(region.material_page_id) ?? 0,
+          displayText: region.display_text,
+          promptText: region.prompt_text,
+          expectedText: region.expected_text,
+          ttsText: region.tts_text,
+          referenceAudioPath: referenceAudioByRegion.get(region.id) ?? null,
+          sortOrder: region.sort_order,
+        }))
+        .sort((left, right) =>
+          left.pageNumber === right.pageNumber
+            ? left.sortOrder - right.sortOrder
+            : left.pageNumber - right.pageNumber,
+        )
+
+      setMaterialRegionOptions(nextOptions)
+      setForm((current) => {
+        const regionStillExists = nextOptions.some((item) => item.id === current.regionId)
+        return {
+          ...current,
+          regionId: regionStillExists ? current.regionId : '',
+        }
+      })
+      setLoadingMaterialRegions(false)
+    }
+
+    void loadMaterialRegions()
+  }, [form.materialId])
+
+  useEffect(() => {
+    if (!form.regionId) return
+    const selectedRegion = materialRegionOptions.find((item) => item.id === form.regionId)
+    if (!selectedRegion) return
+
+    setSelectedReferenceAudio(null)
+    setForm((current) => ({
+      ...current,
+      itemType: 'sentence',
+      itemTitle:
+        current.itemTitle.trim() && current.regionId === selectedRegion.id
+          ? current.itemTitle
+          : `教材句子 · 第 ${selectedRegion.pageNumber} 页`,
+      promptText: selectedRegion.promptText?.trim() || selectedRegion.displayText,
+      expectedText:
+        selectedRegion.expectedText?.trim() || selectedRegion.displayText,
+      ttsText:
+        selectedRegion.ttsText?.trim()
+        || selectedRegion.expectedText?.trim()
+        || selectedRegion.displayText,
+      referenceAudioPath: selectedRegion.referenceAudioPath ?? current.referenceAudioPath,
+    }))
+  }, [form.regionId, materialRegionOptions])
 
   const uploadReferenceAudio = async ({
     audioFile,
@@ -351,6 +523,7 @@ export function AssignmentsPage() {
     const { error: itemError } = await supabase.from('assignment_items').insert({
       assignment_id: assignment.id,
       sort_order: 1,
+      region_id: form.regionId || null,
       item_type: form.itemType,
       title: form.itemTitle.trim() || null,
       prompt_text: form.promptText.trim(),
@@ -375,8 +548,10 @@ export function AssignmentsPage() {
         itemType: form.itemType,
         itemTitle: form.itemTitle.trim() || null,
         promptText: form.promptText.trim(),
+        expectedText: form.expectedText.trim() || null,
         ttsText: form.ttsText.trim() || form.expectedText.trim() || null,
         referenceAudioPath: resolvedReferenceAudioPath || null,
+        regionId: form.regionId || null,
       },
       ...current,
     ])
@@ -393,6 +568,7 @@ export function AssignmentsPage() {
     setForm((current) => ({
       ...current,
       materialId: '',
+      regionId: '',
       title: '',
       description: '',
       dueAt: '',
@@ -415,6 +591,8 @@ export function AssignmentsPage() {
 
   const speechPreviewText =
     form.ttsText.trim() || form.expectedText.trim() || form.promptText.trim()
+
+  const selectedRegion = materialRegionOptions.find((item) => item.id === form.regionId)
 
   useEffect(() => {
     setSpeechError(null)
@@ -624,6 +802,42 @@ export function AssignmentsPage() {
               ))}
             </select>
           </label>
+
+          <label className="span-2">
+            教材热区（句子）
+            <select
+              value={form.regionId}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, regionId: event.target.value }))
+              }
+              disabled={!form.materialId || loadingMaterialRegions}
+            >
+              <option value="">
+                {!form.materialId
+                  ? '先选择教材'
+                  : loadingMaterialRegions
+                    ? '正在加载教材热区...'
+                    : materialRegionOptions.length === 0
+                      ? '当前教材还没有标注热区'
+                      : '可选：把作业绑定到具体句子'}
+              </option>
+              {materialRegionOptions.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {`第 ${item.pageNumber} 页 · ${item.displayText}`}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {selectedRegion ? (
+            <div className="info-banner span-2">
+              已绑定教材热区：第 {selectedRegion.pageNumber} 页
+              <br />
+              句子：{selectedRegion.displayText}
+              <br />
+              后续学生端会直接在教材页里点这句完成示范、录音和提交。
+            </div>
+          ) : null}
 
           <label className="span-2">
             作业标题
@@ -867,6 +1081,7 @@ export function AssignmentsPage() {
                     <div className="assignment-cell">
                       <strong>{row.title}</strong>
                       <span>{row.itemTitle || row.promptText || mapItemType(row.itemType)}</span>
+                      {row.regionId ? <span>已绑定教材热区</span> : null}
                     </div>
                   </td>
                   <td>{classNames[row.class_id] || row.class_id}</td>
