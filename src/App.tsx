@@ -8,6 +8,7 @@ import { ClassesPage } from './pages/ClassesPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { LoginPage } from './pages/LoginPage'
 import { MaterialsPage } from './pages/MaterialsPage'
+import { MaterialRegionsPage } from './pages/MaterialRegionsPage'
 import { StudentsPage } from './pages/StudentsPage'
 import { SubmissionsPage } from './pages/SubmissionsPage'
 
@@ -35,6 +36,7 @@ function ProtectedRoutes() {
         <Route path="/submissions" element={<SubmissionsPage />} />
         <Route path="/assignments" element={<AssignmentsPage />} />
         <Route path="/materials" element={<MaterialsPage />} />
+        <Route path="/materials/:materialId/regions" element={<MaterialRegionsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

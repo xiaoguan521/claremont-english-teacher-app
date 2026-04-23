@@ -622,6 +622,124 @@
   color: #667995;
 }
 
+.region-back-button {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.region-editor-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(360px, 0.9fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.region-stage-panel,
+.region-side-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.region-stage-shell {
+  border-radius: 24px;
+  background: linear-gradient(180deg, #f4fbff, #fef8ef);
+  padding: 18px;
+}
+
+.region-stage {
+  position: relative;
+  min-height: 640px;
+  border-radius: 22px;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid rgba(140, 166, 202, 0.24);
+  user-select: none;
+}
+
+.region-stage-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  background: #ffffff;
+}
+
+.region-stage-empty {
+  min-height: 360px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  line-height: 1.8;
+}
+
+.region-overlay {
+  position: absolute;
+  border: 2px solid #f97316;
+  border-radius: 18px;
+  background: rgba(249, 115, 22, 0.12);
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(249, 115, 22, 0.15);
+}
+
+.region-overlay span {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  min-width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.96);
+  color: #c2410c;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.region-draft {
+  position: absolute;
+  border: 2px dashed #2d5fd4;
+  border-radius: 18px;
+  background: rgba(45, 95, 212, 0.12);
+  pointer-events: none;
+}
+
+.region-form {
+  margin-top: 0;
+}
+
+.region-list {
+  display: grid;
+  gap: 12px;
+}
+
+.region-list-item {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: #f7faff;
+}
+
+.region-list-item strong {
+  color: #23344e;
+  line-height: 1.5;
+}
+
+.region-list-item span {
+  color: #667995;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.region-list-item p {
+  margin: 0;
+  color: #52647f;
+  line-height: 1.7;
+}
+
 .speech-preview-card {
   display: flex;
   justify-content: space-between;
@@ -728,6 +846,10 @@ td {
   }
 
   .review-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .region-editor-layout {
     grid-template-columns: 1fr;
   }
 

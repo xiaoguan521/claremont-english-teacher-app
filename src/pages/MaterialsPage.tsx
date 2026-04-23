@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
@@ -9,6 +10,7 @@ type MaterialRow = {
   title: string
   status: string
   pdf_path: string
+  page_count: number | null
 }
 
 export function MaterialsPage() {
@@ -44,7 +46,7 @@ export function MaterialsPage() {
       const [materialsResponse, schoolsResponse] = await Promise.all([
         supabase
           .from('materials')
-          .select('id, school_id, title, status, pdf_path')
+          .select('id, school_id, title, status, pdf_path, page_count')
           .in('school_id', schoolIds)
           .order('created_at', { ascending: false }),
         supabase.from('schools').select('id, name').in('id', schoolIds),
@@ -126,7 +128,7 @@ export function MaterialsPage() {
         status: form.status,
         uploaded_by: session.user.id,
       })
-      .select('id, school_id, title, status, pdf_path')
+      .select('id, school_id, title, status, pdf_path, page_count')
       .single()
 
     setSubmitting(false)
@@ -273,8 +275,10 @@ export function MaterialsPage() {
               <tr>
                 <th>教材标题</th>
                 <th>校区</th>
+                <th>页数</th>
                 <th>状态</th>
                 <th>存储路径</th>
+                <th>热区</th>
               </tr>
             </thead>
             <tbody>
@@ -282,8 +286,14 @@ export function MaterialsPage() {
                 <tr key={row.id}>
                   <td>{row.title}</td>
                   <td>{schoolNames[row.school_id] || row.school_id}</td>
+                  <td>{row.page_count ?? '-'}</td>
                   <td>{row.status}</td>
                   <td>{row.pdf_path}</td>
+                  <td>
+                    <Link className="quick-link" to={`/materials/${row.id}/regions`}>
+                      去标句子
+                    </Link>
+                  </td>
                 </tr>
               ))}
             </tbody>
