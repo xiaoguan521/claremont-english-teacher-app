@@ -683,6 +683,12 @@
   box-shadow: 0 10px 24px rgba(249, 115, 22, 0.15);
 }
 
+.region-overlay-selected {
+  border-color: #2d5fd4;
+  background: rgba(45, 95, 212, 0.16);
+  box-shadow: 0 12px 28px rgba(45, 95, 212, 0.24);
+}
+
 .region-overlay span {
   position: absolute;
   top: 8px;
@@ -721,6 +727,19 @@
   padding: 14px 16px;
   border-radius: 18px;
   background: #f7faff;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+  border: 1px solid transparent;
+}
+
+.region-list-item:hover {
+  transform: translateY(-1px);
+  border-color: #d8e1ef;
+}
+
+.region-list-item-selected {
+  background: #eef4ff;
+  border-color: #bfd4ff;
 }
 
 .region-list-item strong {

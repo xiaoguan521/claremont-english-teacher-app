@@ -61,6 +61,7 @@ export function MaterialRegionsPage() {
   const [pages, setPages] = useState<MaterialPage[]>([])
   const [regions, setRegions] = useState<MaterialRegion[]>([])
   const [selectedPageId, setSelectedPageId] = useState<string>('')
+  const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null)
   const [pageImageUrl, setPageImageUrl] = useState<string | null>(null)
   const [draftRect, setDraftRect] = useState<DraftRect | null>(null)
   const [normalizedRect, setNormalizedRect] = useState<{
@@ -120,6 +121,7 @@ export function MaterialRegionsPage() {
       setPages(pageRows)
       setRegions(filteredRegions)
       setSelectedPageId((current) => current || pageRows[0]?.id || '')
+      setSelectedRegionId(null)
       setLoading(false)
     }
 
@@ -166,6 +168,11 @@ export function MaterialRegionsPage() {
     [pages, selectedPageId],
   )
 
+  const selectedRegion = useMemo(
+    () => regions.find((region) => region.id === selectedRegionId) ?? null,
+    [regions, selectedRegionId],
+  )
+
   const pageRegions = useMemo(
     () =>
       regions
@@ -173,6 +180,16 @@ export function MaterialRegionsPage() {
         .sort((left, right) => left.sort_order - right.sort_order),
     [regions, selectedPageId],
   )
+
+  useEffect(() => {
+    if (!selectedRegionId) {
+      return
+    }
+    const stillExistsOnPage = pageRegions.some((region) => region.id === selectedRegionId)
+    if (!stillExistsOnPage) {
+      setSelectedRegionId(null)
+    }
+  }, [pageRegions, selectedRegionId])
 
   const handleStageMouseDown = (event: MouseEvent<HTMLDivElement>) => {
     if (!stageRef.current) {
@@ -187,6 +204,7 @@ export function MaterialRegionsPage() {
       currentX: offsetX,
       currentY: offsetY,
     })
+    setSelectedRegionId(null)
     setNormalizedRect(null)
   }
 
@@ -248,42 +266,133 @@ export function MaterialRegionsPage() {
     setError(null)
     setFeedback(null)
 
-    const { data, error: insertError } = await supabase
-      .from('material_page_regions')
-      .insert({
-        material_page_id: selectedPageId,
-        region_type: form.regionType,
-        sort_order: Number(form.sortOrder) || pageRegions.length + 1,
-        x: normalizedRect.x,
-        y: normalizedRect.y,
-        width: normalizedRect.width,
-        height: normalizedRect.height,
-        display_text: form.displayText.trim(),
-        prompt_text: form.promptText.trim() || null,
-        expected_text: form.expectedText.trim() || form.displayText.trim(),
-        tts_text: form.ttsText.trim() || form.expectedText.trim() || form.displayText.trim(),
-        status: 'active',
-        created_by: session.user.id,
-      })
-      .select(
-        'id, material_page_id, region_type, display_text, prompt_text, expected_text, tts_text, x, y, width, height, sort_order, status',
-      )
-      .single()
+    const payload = {
+      material_page_id: selectedPageId,
+      region_type: form.regionType,
+      sort_order: Number(form.sortOrder) || pageRegions.length + 1,
+      x: normalizedRect.x,
+      y: normalizedRect.y,
+      width: normalizedRect.width,
+      height: normalizedRect.height,
+      display_text: form.displayText.trim(),
+      prompt_text: form.promptText.trim() || null,
+      expected_text: form.expectedText.trim() || form.displayText.trim(),
+      tts_text: form.ttsText.trim() || form.expectedText.trim() || form.displayText.trim(),
+      status: 'active',
+    }
+
+    const query = selectedRegionId
+      ? supabase
+          .from('material_page_regions')
+          .update(payload)
+          .eq('id', selectedRegionId)
+          .select(
+            'id, material_page_id, region_type, display_text, prompt_text, expected_text, tts_text, x, y, width, height, sort_order, status',
+          )
+          .single()
+      : supabase
+          .from('material_page_regions')
+          .insert({
+            ...payload,
+            created_by: session.user.id,
+          })
+          .select(
+            'id, material_page_id, region_type, display_text, prompt_text, expected_text, tts_text, x, y, width, height, sort_order, status',
+          )
+          .single()
+
+    const { data, error: saveError } = await query
 
     setSaving(false)
 
-    if (insertError || !data) {
-      setError(insertError?.message ?? '保存热区失败。')
+    if (saveError || !data) {
+      setError(saveError?.message ?? '保存热区失败。')
       return
     }
 
-    setRegions((current) => [...current, data as MaterialRegion])
+    setRegions((current) => {
+      const nextRegion = data as MaterialRegion
+      if (selectedRegionId) {
+        return current.map((item) => (item.id === selectedRegionId ? nextRegion : item))
+      }
+      return [...current, nextRegion]
+    })
+    setSelectedRegionId((data as MaterialRegion).id)
     setNormalizedRect(null)
     setForm((current) => ({
       ...DEFAULT_FORM,
       sortOrder: String((Number(current.sortOrder) || pageRegions.length + 1) + 1),
     }))
-    setFeedback('句子热区已经保存，后面创建作业时就能直接选这句了。')
+    setFeedback(
+      selectedRegionId
+        ? '这句热区已经更新，教师端创建作业时会自动用最新内容。'
+        : '句子热区已经保存，后面创建作业时就能直接选这句了。',
+    )
+  }
+
+  const handleSelectRegion = (region: MaterialRegion) => {
+    setSelectedRegionId(region.id)
+    setNormalizedRect({
+      x: region.x,
+      y: region.y,
+      width: region.width,
+      height: region.height,
+    })
+    setForm({
+      regionType: region.region_type,
+      displayText: region.display_text,
+      promptText: region.prompt_text ?? '',
+      expectedText: region.expected_text ?? '',
+      ttsText: region.tts_text ?? '',
+      sortOrder: String(region.sort_order),
+    })
+    setFeedback('正在预览这句热区，可以直接改内容或重新拖框。')
+    setError(null)
+  }
+
+  const handleCreateNew = () => {
+    setSelectedRegionId(null)
+    setNormalizedRect(null)
+    setDraftRect(null)
+    setForm({
+      ...DEFAULT_FORM,
+      sortOrder: String(pageRegions.length + 1),
+    })
+    setFeedback('已切换到新增模式，先在图片上框一句新的内容。')
+    setError(null)
+  }
+
+  const handleArchiveRegion = async () => {
+    if (!selectedRegionId) {
+      setError('先选中一条热区，再删除。')
+      return
+    }
+
+    setSaving(true)
+    setError(null)
+    setFeedback(null)
+
+    const { error: archiveError } = await supabase
+      .from('material_page_regions')
+      .update({ status: 'archived' })
+      .eq('id', selectedRegionId)
+
+    setSaving(false)
+
+    if (archiveError) {
+      setError(archiveError.message ?? '删除热区失败。')
+      return
+    }
+
+    setRegions((current) => current.filter((item) => item.id !== selectedRegionId))
+    setSelectedRegionId(null)
+    setNormalizedRect(null)
+    setDraftRect(null)
+    setForm({
+      ...DEFAULT_FORM,
+      sortOrder: String(Math.max(1, pageRegions.length - 1)),
+    })
+    setFeedback('这句热区已经移除。')
   }
 
   if (loading) {
@@ -338,6 +447,7 @@ export function MaterialRegionsPage() {
                     setSelectedPageId(page.id)
                     setNormalizedRect(null)
                     setDraftRect(null)
+                    setSelectedRegionId(null)
                   }}
                 >
                   第 {page.page_number} 页
@@ -363,22 +473,23 @@ export function MaterialRegionsPage() {
                 </div>
               )}
 
-              {pageRegions.map((region, index) => (
-                <button
-                  key={region.id}
-                  type="button"
-                  className="region-overlay"
-                  style={{
-                    left: `${region.x * 100}%`,
-                    top: `${region.y * 100}%`,
-                    width: `${region.width * 100}%`,
-                    height: `${region.height * 100}%`,
-                  }}
-                  title={region.display_text}
-                >
-                  <span>{index + 1}</span>
-                </button>
-              ))}
+                {pageRegions.map((region, index) => (
+                  <button
+                    key={region.id}
+                    type="button"
+                    className={`region-overlay${region.id === selectedRegionId ? ' region-overlay-selected' : ''}`}
+                    style={{
+                      left: `${region.x * 100}%`,
+                      top: `${region.y * 100}%`,
+                      width: `${region.width * 100}%`,
+                      height: `${region.height * 100}%`,
+                    }}
+                    title={region.display_text}
+                    onClick={() => handleSelectRegion(region)}
+                  >
+                    <span>{index + 1}</span>
+                  </button>
+                ))}
 
               {draftStyle ? <div className="region-draft" style={draftStyle} /> : null}
             </div>
@@ -396,6 +507,12 @@ export function MaterialRegionsPage() {
         <aside className="region-side-panel">
           <article className="panel">
             <h2>保存当前句子</h2>
+            {selectedRegion ? (
+              <div className="info-banner">
+                正在预览：第 {selectedPage?.page_number ?? '-'} 页第 {selectedRegion.sort_order} 句
+              </div>
+            ) : null}
+            {selectedRegion ? <div style={{ height: 12 }} /> : null}
             <div className="inline-form region-form">
               <label>
                 热区类型
@@ -480,13 +597,31 @@ export function MaterialRegionsPage() {
 
               <div className="form-actions span-2">
                 <button
+                  className="ghost-button"
+                  type="button"
+                  disabled={saving}
+                  onClick={handleCreateNew}
+                >
+                  新建热区
+                </button>
+                <button
                   className="primary-button"
                   type="button"
                   disabled={saving || !normalizedRect}
                   onClick={() => void handleSaveRegion()}
                 >
-                  {saving ? '保存中...' : '保存这句热区'}
+                  {saving ? '保存中...' : selectedRegionId ? '更新这句热区' : '保存这句热区'}
                 </button>
+                {selectedRegionId ? (
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void handleArchiveRegion()}
+                  >
+                    删除这句热区
+                  </button>
+                ) : null}
               </div>
             </div>
           </article>
@@ -503,7 +638,11 @@ export function MaterialRegionsPage() {
             ) : (
               <div className="region-list">
                 {pageRegions.map((region, index) => (
-                  <article key={region.id} className="region-list-item">
+                  <article
+                    key={region.id}
+                    className={`region-list-item${region.id === selectedRegionId ? ' region-list-item-selected' : ''}`}
+                    onClick={() => handleSelectRegion(region)}
+                  >
                     <strong>
                       {index + 1}. {region.display_text}
                     </strong>
