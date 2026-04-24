@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 
 import { useAuth } from '../lib/auth'
+import { useSchoolBrand } from '../lib/useSchoolBrand'
 
 const navigation = [
   { to: '/', label: '工作台' },
@@ -13,15 +14,20 @@ const navigation = [
 
 export function AppShell() {
   const { profile, session, signOut } = useAuth()
+  const brand = useSchoolBrand()
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-card">
-          <div className="brand-mark">CE</div>
+          {brand.logoUrl ? (
+            <img className="brand-logo" src={brand.logoUrl} alt={brand.shellTitle} />
+          ) : (
+            <div className="brand-mark">{brand.logoFallback}</div>
+          )}
           <div>
-            <div className="brand-title">克莱蒙英语教师端</div>
-            <div className="brand-subtitle">Teacher Workspace</div>
+            <div className="brand-title">{brand.shellTitle}</div>
+            <div className="brand-subtitle">{brand.shellSubtitle}</div>
           </div>
         </div>
 

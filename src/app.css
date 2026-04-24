@@ -133,6 +133,14 @@
   background: linear-gradient(135deg, #4cb8ff, #2f67f6);
 }
 
+.brand-logo {
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .brand-title {
   font-size: 18px;
   font-weight: 900;
